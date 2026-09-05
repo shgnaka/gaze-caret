@@ -6,7 +6,7 @@ The goal is to start text selection near the place you are looking at, then use 
 
 ## Project status
 
-Requirements stage. There is no runnable application or measured gaze accuracy yet.
+Early implementation. The first tested component selects a representative gaze point from a pre-key snapshot. There is no runnable browser application or measured gaze accuracy yet.
 
 The first milestone is a standalone browser experiment using a pretrained MediaPipe face/iris detector and a custom, CPU-trainable regression model. It will measure whether webcam gaze can identify text lines under normal reading conditions.
 
@@ -35,4 +35,13 @@ Individual calibration runs on an ordinary PC. Training a general image-based ga
 
 Development uses short-lived branches and pull requests into `develop`. `main` is reserved for reviewed releases. See [Development strategy](docs/development-strategy.md) for the alternatives considered, branch rules, implementation approach, and experiment workflow, and [Contributing](CONTRIBUTING.md) for the Red → Green → Refactor process.
 
-The implementation milestone will add a reproducible build and a downloadable standalone web bundle with its model/runtime assets. GitHub Actions will run automated checks and produce that bundle. Setup commands and deployment instructions will be added when they exist.
+The core uses TypeScript with Node.js 24.19.0 and npm 11.9.0. With these versions installed:
+
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm run check
+```
+
+`npm test` runs the behavior tests; `npm run typecheck` checks types separately. Node's native TypeScript execution does not type-check. The CI workflow runs both on pull requests and on updates to `develop` / `main`. See the [first TDD record](docs/tdd-first-slice.md) for the scope, contract, and observed Red → Green → Refactor results.
+
+A later slice will add the browser application, browser tests, and a downloadable standalone web bundle with its model/runtime assets. The current core checks do not exercise a camera, browser, MediaPipe model, or web bundle.
