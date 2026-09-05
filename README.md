@@ -16,6 +16,7 @@ The first milestone is a standalone browser experiment using a pretrained MediaP
 
 - [Requirements and scope](docs/requirements.md) — product goal, milestone boundaries, functional requirements, data contracts, and implementation decisions.
 - [Validation plan](docs/validation-plan.md) — acceptance scenarios, human experiments, metrics, and advancement criteria.
+- [Camera placement and complex layouts](docs/environment-and-layout-validation.md) — setup confirmation, calibration validity, robustness evaluation, and staged page fixtures.
 - [Vimium-C coexistence](docs/vimium-c-coexistence.md) — independent caret control, key ownership, and settings JSON conversion.
 
 These documents form the initial requirements baseline. Numerical experiment settings are starting values, not demonstrated accuracy or performance claims.
@@ -27,6 +28,8 @@ These documents form the initial requirements baseline. Numerical experiment set
 3. **M2 — Vimium-C coexistence:** an independent caret/selection extension, mode-specific key ownership, and a Vimium-C settings JSON importer/exporter. No Vimium-C fork.
 
 Implementation starts with acceptance tests derived from the requirements. Automated correctness checks and real webcam accuracy measurements are reported separately.
+
+M0 will prototype camera placement confirmation before calibration. The first measurement keeps a single-column, multi-paragraph baseline; later evaluations add different camera placements and fixtures resembling complex real-world pages. The setup phase will also be part of the M2 extension.
 
 ## Local processing
 
