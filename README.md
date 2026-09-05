@@ -33,4 +33,6 @@ Individual calibration runs on an ordinary PC. Training a general image-based ga
 
 ## Development and distribution
 
+Development uses short-lived branches and pull requests into `develop`. `main` is reserved for reviewed releases. See [Development strategy](docs/development-strategy.md) for the alternatives considered, branch rules, implementation approach, and experiment workflow, and [Contributing](CONTRIBUTING.md) for the Red → Green → Refactor process.
+
 The implementation milestone will add a reproducible build and a downloadable standalone web bundle with its model/runtime assets. GitHub Actions will run automated checks and produce that bundle. Setup commands and deployment instructions will be added when they exist.
