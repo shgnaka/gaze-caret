@@ -1,8 +1,10 @@
 # gaze-caret
 
-Experimental webcam-based gaze estimation for browser text selection and Vimium-C integration.
+Experimental webcam-based gaze estimation and caret control that coexist with Vimium-C.
 
 The goal is to start text selection near the place you are looking at, then use the keyboard to adjust it precisely.
+
+The planned extension will own caret placement, movement, and basic selection while Vimium-C handles normal browsing. Vimium-C will not be forked. A settings tool will import the user's Vimium-C JSON, preview keybinding conflicts and adjustments, and export a compatible JSON for re-import into Vimium-C.
 
 ## Project status
 
@@ -14,6 +16,7 @@ The first milestone is a standalone browser experiment using a pretrained MediaP
 
 - [Requirements and scope](docs/requirements.md) — product goal, milestone boundaries, functional requirements, data contracts, and implementation decisions.
 - [Validation plan](docs/validation-plan.md) — acceptance scenarios, human experiments, metrics, and advancement criteria.
+- [Vimium-C coexistence](docs/vimium-c-coexistence.md) — independent caret control, key ownership, and settings JSON conversion.
 
 These documents form the initial requirements baseline. Numerical experiment settings are starting values, not demonstrated accuracy or performance claims.
 
@@ -21,7 +24,7 @@ These documents form the initial requirements baseline. Numerical experiment set
 
 1. **M0 — Gaze experiment:** camera lifecycle, calibration, local learning, independent validation, and text-line targeting.
 2. **M1 — Text selection experiment:** DOM caret placement and measurement of selection time and correction effort.
-3. **M2 — Vimium-C integration:** gaze-assisted entry into Visual Mode with the existing keyboard behavior and fallback.
+3. **M2 — Vimium-C coexistence:** an independent caret/selection extension, mode-specific key ownership, and a Vimium-C settings JSON importer/exporter. No Vimium-C fork.
 
 Implementation starts with acceptance tests derived from the requirements. Automated correctness checks and real webcam accuracy measurements are reported separately.
 
