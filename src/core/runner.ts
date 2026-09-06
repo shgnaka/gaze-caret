@@ -70,3 +70,7 @@ export function issueUrl(body: string, sessionId: string): string {
   if (url.href.length > 8000) throw new RangeError('Issue draft too long; use the copy button');
   return url.href;
 }
+export interface ValidationPoint { target: Point; point: Point | null; reason: string | null; error: number | null }
+export function interruptedValidation(points: readonly ValidationPoint[], pending: Point | null, reason: string): ValidationPoint[] {
+  return pending ? [...points,{target:{...pending},point:null,reason:`aborted:${reason}`,error:null}] : [...points];
+}

@@ -1,5 +1,5 @@
 import './style.css';
-import { Experiment, GazeHistory, OUTCOMES, issueBody, issueUrl } from './core/runner.ts';
+import { Experiment, GazeHistory, OUTCOMES, issueBody, issueUrl, interruptedValidation } from './core/runner.ts';
 import type { Mode, RunConfig, Target } from './core/runner.ts';
 import { selectGazePoint } from './core/select-gaze-point.ts';
 import type { Point, GazeDecision } from './core/select-gaze-point.ts';
@@ -71,6 +71,8 @@ function showAim(point:Point,caption:string,progress:string):void {
 }
 function configure():void {
   hideOverlay();$('demo-banner').hidden=true;
+  $('counter').textContent='プレビュー';$('progress-label').textContent='';$<HTMLProgressElement>('progress').value=0;
+  $('trial-prompt').textContent='中央の文章を使って、見ている行を確かめます。';$('key-hint').textContent='カメラは開始ボタンを押すまで使いません。';
   setStage('configure','実験を準備',`<p>使うページと条件を選び、短い練習から始めます。</p><div id="size-warning" class="warning" hidden>実測には幅 1000 px・高さ 750 px 以上のウィンドウを使ってください。</div>
   <label>入力方法<select id="mode"><option value="camera">実カメラ</option><option value="demo">デモ（マウスで代用）</option></select></label>
   <label>文章のレイアウト<select id="fixture-choice">${Object.entries(FIXTURES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
@@ -92,7 +94,7 @@ async function startRun():Promise<void> {
   const total=Number(value('total'));
   const config:RunConfig={mode,total,blockSize:Math.min(total,Number(value('block'))),fixture:value('fixture-choice'),seed};
   lineHeight=Number(value('line-height'));run=new Experiment(config);practice=null;sessionId=uid();revision=0;layoutRevision=0;
-  calibrationSummary=[];validations=[];trialMeta={};decisions={};stats={frames:0,validFrames:0,inferenceTotalMs:0,inferenceMaxMs:0};rng=random(seed);
+  calibrationSummary=[];validations=[];trialMeta={};decisions={};cameraSettings={};stats={frames:0,validFrames:0,inferenceTotalMs:0,inferenceMaxMs:0};rng=random(seed);
   $('demo-banner').hidden=mode!=='demo';$<HTMLProgressElement>('progress').max=total;updateCounter();
   await setupCamera();
 }
@@ -118,7 +120,7 @@ async function setupCamera(deviceId?:string):Promise<void> {
       ()=>navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30},...(deviceId?{deviceId:{exact:deviceId}}:{})}}),
       async()=>{const { FaceLandmarker,FilesetResolver }=await import('@mediapipe/tasks-vision');const vision=await FilesetResolver.forVisionTasks(new URL('./wasm/',document.baseURI).href);return FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:new URL('./models/face_landmarker.task',document.baseURI).href,delegate:'CPU'},runningMode:'VIDEO',numFaces:2,minFaceDetectionConfidence:.5,minFacePresenceConfidence:.5,minTrackingConfidence:.5});},
     );
-    if(!started||contextId!==expected)return;
+    if(!started||contextId!==expected||stage!=='camera')return;
     video.srcObject=camera.stream;await video.play();if(contextId!==expected)return;
     const settings=camera.stream!.getVideoTracks()[0]!.getSettings();cameraSettings={};
     if(settings.width!==undefined)cameraSettings.width=settings.width;if(settings.height!==undefined)cameraSettings.height=settings.height;if(settings.frameRate!==undefined)cameraSettings.frameRate=settings.frameRate;
@@ -129,7 +131,7 @@ async function setupCamera(deviceId?:string):Promise<void> {
     devices.filter(d=>d.kind==='videoinput').forEach((d,i)=>select.add(new Option(d.label||`カメラ ${i+1}`,d.deviceId)));select.value=deviceId??'';
     select.onchange=()=>{void setupCamera(select.value||undefined);};
   } catch(error) {
-    if(contextId!==expected)return;stopCamera();
+    if(contextId!==expected||stage!=='camera')return;stopCamera();
     const name=error instanceof Error?error.name:'Error';
     $('status').textContent=({NotAllowedError:'カメラが許可されていません。ブラウザの権限を確認して再試行してください。',NotFoundError:'利用できるカメラがありません。',NotReadableError:'カメラを開始できません。他のアプリの使用状況を確認してください。',OverconstrainedError:'選んだカメラを利用できません。'} as Record<string,string>)[name]??'カメラまたは推定モデルを読み込めませんでした。接続を確認して再試行してください。';
     const retry=document.createElement('button');retry.textContent='再試行';retry.onclick=()=>{void setupCamera();};$('stage-body').append(retry);
@@ -146,7 +148,9 @@ function startFrames():void {cancelAnimationFrame(frame);lastInference=0;lastVid
 function tick(at:number):void {
   frame=requestAnimationFrame(tick);
   if(viewportSignature!==signature()){pauseRun('viewport-changed');return;}
-  if(at-lastInference<1000/15)return;lastInference=at;
+  // Pointer sampling is a camera-free control, not a simulated 15 Hz detector.
+  // Keep it at the display cadence so demo input never inherits camera dropout.
+  if(mode==='camera'&&at-lastInference<1000/15)return;lastInference=at;
   let features:number[]|null=null,point:Point|null=null;const sampledAt=now();
   if(mode==='demo'){point=pointer;}
   else {
@@ -243,8 +247,14 @@ function updateCounter():void {
 function showBreak():void {hideOverlay();history.clear();setStage('break','ひと休み',`<p>${run!.trials.length} 試行を記録しました。顔や画面の位置が変わっていないか確認して続けましょう。</p><p>${mode==='camera'?'カメラは使用中です。一時停止するとカメラも止まります。':''}</p><button id="resume-validation" class="primary">精度を確認して続ける</button><button id="moved" class="quiet full">カメラの位置を変えた</button>`);$('resume-validation').onclick=()=>beginValidation(true);$('moved').onclick=()=>{void setupCamera();};}
 function pauseRun(reason:string):void {
   if(['configure','paused','results'].includes(stage))return;
+  closeValidation(reason);
   clearTimers();run?.interrupt(reason,now());practice?.interrupt(reason,now());stopCamera();model=null;modelId='';revision++;contextId=`${sessionId}:${revision}`;calibrationGroups=[];hideOverlay();
   setStage('paused','一時停止しました',`<p>カメラを停止しました。確定済みの結果と中断した試行は保持しています。</p><p>${({'viewport-changed':'ウィンドウの位置・サイズ・倍率が変わりました。','layout-changed':'文章の位置が変わったため、古い候補を破棄しました。','hidden':'別のタブへ移動したため停止しました。','camera-disconnected':'カメラとの接続が切れました。','no-visible-text':'測定できる文章が表示範囲にありません。'} as Record<string,string>)[reason]??'再開前に配置と精度を確認します。'}</p><button id="resume" class="primary">配置を確認して再開</button>`);$('resume').onclick=()=>{void setupCamera();};updateCounter();
+}
+function closeValidation(reason:string):void {
+  if(stage!=='validation'||!validation)return;
+  validation.points=interruptedValidation(validation.points,validationBusy?null:validationTargets[validationIndex]!,reason);
+  validations.push(validation);validation=null;
 }
 function report():object {return{schemaVersion:1,experiment:'gaze-caret-runner-v1',build:__BUILD_COMMIT__,sessionId,generatedAt:new Date().toISOString(),config:run!.config,lineHeight,mode,scope:run!.config.total===60?'baseline-protocol':'quick-check',featureVersion:'iris-head-12-v1',engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu-ridge-lambda-1',viewport:viewport(),camera:cameraSettings,calibrations:calibrationSummary,validation:validations,practiceTrials:practice?.trials??[],trials:run!.trials.map(t=>({...t,environment:trialMeta[t.id]??null,decision:decisions[t.id]??null})),frameSummary:stats,feedback:value('feedback'),notes:'Images, video, audio, device IDs and continuous gaze history are not included. Demo and quick-check results do not establish gaze accuracy.'};}
 function download(text:string,type:string,extension:string):void {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=`gaze-caret-${sessionId}.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -265,7 +275,7 @@ function showResults():void {
   $('new-run').onclick=()=>{if(confirm('保存していない結果も破棄します。新しい実験を始めますか？')){run=null;practice=null;model=null;validations=[];calibrationSummary=[];calibrationGroups=[];trialMeta={};decisions={};configure();}};
 }
 $('pause').onclick=()=>pauseRun('manual-pause');$('overlay-stop').onclick=()=>pauseRun('manual-pause');
-$('finish').onclick=()=>{run?.interrupt('ended-early',now());showResults();};
+$('finish').onclick=()=>{closeValidation('ended-early');run?.interrupt('ended-early',now());practice?.interrupt('ended-early',now());showResults();};
 document.addEventListener('mousemove',event=>{if(mode==='demo')pointer={x:event.clientX,y:event.clientY};});
 document.addEventListener('keydown',event=>{
   if(event.code!=='Space'||event.repeat||event.isComposing||event.ctrlKey||event.altKey||event.metaKey||event.shiftKey)return;

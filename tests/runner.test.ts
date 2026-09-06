@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Experiment, GazeHistory, issueBody, issueUrl } from '../src/core/runner.ts';
+import { Experiment, GazeHistory, issueBody, issueUrl, interruptedValidation } from '../src/core/runner.ts';
 import type { Target, RunConfig } from '../src/core/runner.ts';
 const config: RunConfig = { mode: 'demo', total: 4, blockSize: 2, fixture: 'baseline', seed: 42 };
 const target: Target = { id: 'a', x: 200, y: 300, text: '本', block: 'p1', region: 'main', line: 1 };
@@ -52,4 +52,14 @@ test('sharing is an explicit GitHub draft with aggregates; no raw gaze or featur
   const url = new URL(issueUrl(body, 'session-1'));
   assert.equal(url.origin, 'https://github.com'); assert.equal(url.pathname, '/shgnaka/gaze-caret/issues/new');
   assert.equal(url.searchParams.get('body'), body);
+});
+test('a presented coordinate validation target remains in the report when interrupted', () => {
+  const points=[{target:{x:1,y:2},point:{x:2,y:3},reason:null,error:Math.SQRT2}];
+  const ended=interruptedValidation(points,{x:4,y:5},'hidden');
+  assert.equal(ended.length,2);assert.equal(ended[1]!.reason,'aborted:hidden');assert.equal(ended[1]!.point,null);
+  assert.equal(points.length,1);
+});
+test('interrupting coordinate feedback does not invent another presented target', () => {
+  const points=[{target:{x:1,y:2},point:null,reason:'missing',error:null}];
+  assert.deepEqual(interruptedValidation(points,null,'hidden'),points);
 });

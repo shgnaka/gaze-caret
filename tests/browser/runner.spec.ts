@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 async function startDemo(page: Page, fixture='baseline'): Promise<void> {
   await page.goto('/'); await page.locator('#mode').selectOption('demo'); await page.locator('#fixture-choice').selectOption(fixture); await page.locator('#start').click();
   await page.locator('#placement-confirm').check(); await page.locator('#calibrate').click();
@@ -78,4 +79,11 @@ test('bundled model and WASM run with a fake camera, and stopping releases the v
   await page.waitForTimeout(2000);await expect(page.locator('#stage-title')).toHaveText('配置と写り方を確認');
   await page.locator('#pause').click();await expect(page.locator('#camera-status')).toHaveText('カメラ停止中');
   expect(await page.locator('#camera-preview').evaluate(el=>(el as HTMLVideoElement).srcObject)).toBe(null);
+});
+test('interrupting an unfinished coordinate check preserves the presented target in JSON',async({page})=>{
+  await startDemo(page);await page.locator('#overlay-stop').click();await page.locator('#finish').click();
+  const download=page.waitForEvent('download');await page.locator('#json').click();
+  const artifact=await download;const path=await artifact.path();const result=JSON.parse(await readFile(path!,'utf8'));
+  expect(result.validation).toHaveLength(1);expect(result.validation[0].points).toHaveLength(1);
+  expect(result.validation[0].points[0].reason).toBe('aborted:manual-pause');expect(result.trials).toHaveLength(0);
 });
