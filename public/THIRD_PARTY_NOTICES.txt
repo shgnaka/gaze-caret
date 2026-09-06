@@ -1,0 +1,14 @@
+This experimental application uses MediaPipe Tasks Vision 0.10.32 and
+MediaPipe Face Landmarker (float16, version 1) from Google.
+
+MediaPipe is licensed under the Apache License, Version 2.0.
+https://www.apache.org/licenses/LICENSE-2.0
+https://github.com/google-ai-edge/mediapipe
+
+Model source:
+https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+SHA-256: 64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff
+
+The camera image stays on the participant's device. The model detects face
+landmarks; it does not directly provide screen gaze coordinates. Screen
+coordinates are learned through individual calibration in this application.

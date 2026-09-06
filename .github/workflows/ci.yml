@@ -29,3 +29,23 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Typecheck and test
         run: npm run check
+      - name: Build standalone experiment
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser acceptance tests
+        run: npm run test:browser
+      - name: Save experiment bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gaze-caret-experiment
+          path: dist/
+          include-hidden-files: true
+          retention-days: 14
+      - name: Save browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-failure-evidence
+          path: test-results/
+          retention-days: 7
