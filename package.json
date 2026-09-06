@@ -1,0 +1,21 @@
+{
+  "name": "gaze-caret",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Experimental webcam gaze estimation for browser text selection.",
+  "engines": {
+    "node": "24.19.0",
+    "npm": "11.9.0"
+  },
+  "packageManager": "npm@11.9.0",
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  }
+}
