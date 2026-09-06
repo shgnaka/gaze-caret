@@ -8,7 +8,7 @@ The planned extension will own caret placement, movement, and basic selection wh
 
 ## Project status
 
-Early implementation. The first tested component selects a representative gaze point from a pre-key snapshot. There is no runnable browser application or measured gaze accuracy yet.
+Experimental browser application. It guides camera placement confirmation, personal calibration, independent validation, practice, measured trials, breaks, and result sharing. A mouse-driven demo runs without a camera. Personal gaze accuracy has not been measured yet.
 
 The first milestone is a standalone browser experiment using a pretrained MediaPipe face/iris detector and a custom, CPU-trainable regression model. It will measure whether webcam gaze can identify text lines under normal reading conditions.
 
@@ -17,6 +17,7 @@ The first milestone is a standalone browser experiment using a pretrained MediaP
 - [Requirements and scope](docs/requirements.md) — product goal, milestone boundaries, functional requirements, data contracts, and implementation decisions.
 - [Validation plan](docs/validation-plan.md) — acceptance scenarios, human experiments, metrics, and advancement criteria.
 - [Camera placement and complex layouts](docs/environment-and-layout-validation.md) — setup confirmation, calibration validity, robustness evaluation, and staged page fixtures.
+- [Experiment runner](docs/experiment-runner.md) — the working flow, GitHub Pages deployment, explicit result sharing, and measurement boundaries.
 - [Vimium-C coexistence](docs/vimium-c-coexistence.md) — independent caret control, key ownership, and settings JSON conversion.
 
 These documents form the initial requirements baseline. Numerical experiment settings are starting values, not demonstrated accuracy or performance claims.
@@ -46,8 +47,16 @@ The core uses TypeScript with Node.js 24.19.0 and npm 11.9.0. With these version
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
 npm run check
+npm run build
+npm run preview
 ```
 
 `npm test` runs the behavior tests; `npm run typecheck` checks types separately. Node's native TypeScript execution does not type-check. The CI workflow runs both on pull requests and on updates to `develop` / `main`. See the [first TDD record](docs/tdd-first-slice.md) for the scope, contract, and observed Red → Green → Refactor results.
 
-A later slice will add the browser application, browser tests, and a downloadable standalone web bundle with its model/runtime assets. The current core checks do not exercise a camera, browser, MediaPipe model, or web bundle.
+Open the localhost URL printed by the preview command in a top-level Chrome window. For source development, run `node scripts/prepare-assets.mjs` once and then `npm run dev`. Build assets are pinned and bundled, including the face model and WASM runtime. See [model assets](docs/model-assets.md).
+
+For browser acceptance tests, install Chromium with `npx playwright install --with-deps chromium`, then run `npm run test:browser`. These tests use synthetic inputs and a fake camera; they do not measure human gaze accuracy. CI also creates a downloadable `gaze-caret-experiment` bundle.
+
+The deployment workflow publishes the selected `experiment` branch to GitHub Pages after tests pass. Enable Pages with the GitHub Actions source once in repository settings; see [publishing and result sharing](docs/experiment-runner.md). This does not merge into `main` or `develop`.
+
+At the end of a run, download JSON/CSV, copy the summary into ChatGPT, or explicitly open a prefilled public GitHub Issue. Submit the issue on GitHub and ask ChatGPT to review it. No GitHub token is stored in the browser and no report is uploaded automatically.

@@ -2,3 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+public/models/
+public/wasm/
+test-results/
+playwright-report/
