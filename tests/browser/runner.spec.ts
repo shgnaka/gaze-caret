@@ -28,6 +28,24 @@ test('demo can start without requesting a camera and reaches calibration instruc
   await page.locator('#placement-confirm').check(); await page.locator('#calibrate').click();
   await expect(page.locator('#stage-title')).toHaveText('精度を確認');
 });
+
+test('detailed diagnostics can be downloaded before calibration starts', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#mode').selectOption('demo');
+  await page.locator('#diagnostic-mode').selectOption('detailed');
+  await page.locator('#start').click();
+  await expect(page.locator('#stage-title')).toHaveText('配置と写り方を確認');
+  const download = page.waitForEvent('download');
+  await page.locator('#download-diagnostics').click();
+  const artifact = await download;
+  const path = await artifact.path();
+  const result = JSON.parse(await readFile(path!, 'utf8'));
+  expect(result.experiment).toBe('gaze-caret-diagnostics-v1');
+  expect(result.diagnostics.mode).toBe('detailed');
+  expect(result.diagnostics).toHaveProperty('frames');
+  expect(result).not.toHaveProperty('audio');
+  expect(result).not.toHaveProperty('video');
+});
 test('complete a demo with a break, preserve failures, and share only after explicit consent', async({page})=>{
   test.setTimeout(90000);
   const offsite:string[]=[];page.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:4173'))offsite.push(r.url());});

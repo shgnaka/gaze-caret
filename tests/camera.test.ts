@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CameraSession } from '../src/core/camera-session.ts';
-import { extractFeatures, acceptsCalibrationFrame } from '../src/core/features.ts';
+import { extractFeatures, extractFeaturesDetailed, acceptsCalibrationFrame } from '../src/core/features.ts';
 import type { Landmark } from '../src/core/features.ts';
 const deferred = <T>() => { let resolve!: (v: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; };
 test('stopping while permission is pending releases a late stream without loading a detector', async () => {
@@ -38,6 +38,33 @@ test('closed eyes, missing landmarks and multiple faces are invalid', () => {
   const f=face(); f[159]=f[145]!;
   assert.equal(extractFeatures([f],640,480),null); assert.equal(extractFeatures([[]],640,480),null);
   assert.equal(extractFeatures([face(),face()],640,480),null);
+});
+
+test('feature extraction reports why a frame was rejected', () => {
+  assert.equal(extractFeaturesDetailed([], 640, 480).reason, 'no-face');
+  assert.equal(extractFeaturesDetailed([face(), face()], 640, 480).reason, 'multiple-faces');
+
+  const missing = face();
+  missing[468] = { x: Number.NaN, y: 0.4, z: 0 };
+  assert.equal(extractFeaturesDetailed([missing], 640, 480).reason, 'invalid-landmark');
+
+  const closedLeft = face();
+  closedLeft[159] = closedLeft[145]!;
+  assert.equal(extractFeaturesDetailed([closedLeft], 640, 480).reason, 'left-eye-geometry');
+
+  const closedRight = face();
+  closedRight[386] = closedRight[374]!;
+  assert.equal(extractFeaturesDetailed([closedRight], 640, 480).reason, 'right-eye-geometry');
+
+  const nearEyes = face();
+  nearEyes[33] = { ...nearEyes[33]!, x: 0.49, y: 0.4 };
+  nearEyes[263] = { ...nearEyes[263]!, x: 0.51, y: 0.4 };
+  assert.equal(extractFeaturesDetailed([nearEyes], 640, 480).reason, 'eyes-too-small');
+
+  const valid = extractFeaturesDetailed([face()], 640, 480);
+  assert.equal(valid.reason, null);
+  assert.equal(valid.faceCount, 1);
+  assert.deepEqual(valid.features, extractFeatures([face()], 640, 480));
 });
 test('calibration excludes movement time, late old-point frames and excess samples', () => {
   assert.equal(acceptsCalibrationFrame(1000,1299,0),false);

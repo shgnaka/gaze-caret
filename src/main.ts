@@ -5,8 +5,11 @@ import { selectGazePoint } from './core/select-gaze-point.ts';
 import type { Point, GazeDecision } from './core/select-gaze-point.ts';
 import { fitRidge, predict, balancedSamples } from './core/regression.ts';
 import type { RidgeModel, CalibrationSample } from './core/regression.ts';
-import { extractFeatures, acceptsCalibrationFrame } from './core/features.ts';
+import { extractFeaturesDetailed, acceptsCalibrationFrame } from './core/features.ts';
 import { CameraSession } from './core/camera-session.ts';
+import { DiagnosticRecorder } from './core/diagnostics.ts';
+import type { DiagnosticFrameInput, DiagnosticMode, DiagnosticReason } from './core/diagnostics.ts';
+import type { FeatureRejectReason } from './core/features.ts';
 import { FIXTURES, fixtureHtml, measureFixture, nearestLine, lineTarget } from './layout.ts';
 import type { Layout } from './layout.ts';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
@@ -25,6 +28,9 @@ let frame=0,lastInference=0,lastVideoTime=-1,lastFeaturesAt=-Infinity,latestFeat
 let pointer:Point|null=null,viewportSignature='',resuming=false,layout:Layout={lines:[],targets:[]};
 let rng:()=>number=()=>0,feedbackTimer:number|undefined,calTimer:number|undefined;
 const history=new GazeHistory(),camera=new CameraSession<MediaStream,FaceLandmarker>();
+let diagnosticMode:DiagnosticMode='basic';
+let diagnostics=new DiagnosticRecorder({mode:'basic'});
+let latestFeatureReason:FeatureRejectReason|DiagnosticReason|null=null,lastFaceCount=0,firstValidFeatureSeen=false;
 let calibrationGroups:CalibrationSample[][]=[],calibrationOrder:Point[]=[],calibrationIndex=0,calibrationStarted=0,calibrationPointStarted=0;
 let calibrationSummary:{ modelId:string; sampleCount:number; elapsedMs:number; contextId:string }[]=[];
 let placement={position:'unknown',osScale:null as number|null,confirmed:false},cameraSettings:{width?:number;height?:number;frameRate?:number}={};
@@ -36,6 +42,7 @@ const signature=()=>[innerWidth,innerHeight,devicePixelRatio,screenX,screenY].jo
 const viewport=()=>({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,screenX,screenY});
 const outcomeText={exact:'正しい行',adjacent:'隣の行','other-line':'同じ段落の別の行','other-block':'別の段落',unavailable:'候補なし',aborted:'中断'};
 const reasonText:Record<string,string>={'insufficient-samples':'有効な視線が足りません','stale-data':'視線データが古くなっています','invalid-context':'校正を確認してください','excessive-spread':'視線が安定していません','too-far':'近くに候補の文章がありません'};
+const diagnosticReasonText:Record<string,string>={'no-face':'顔 0 個','multiple-faces':'顔が複数','invalid-landmark':'ランドマーク不正','left-eye-geometry':'左目の形状','right-eye-geometry':'右目の形状','eyes-too-small':'両目が小さい','non-finite-feature':'特徴量が不正','invalid-frame':'映像サイズ不正','detector-not-ready':'モデル準備中','video-not-ready':'映像準備中','unchanged-video-time':'映像が更新されていない','detector-error':'推論エラー'};
 
 $('app').innerHTML=`
 <header class="topbar"><a class="wordmark" href="./">gaze<span>caret</span><small>実験室</small></a><div class="top-actions"><span id="camera-status" class="camera-status">カメラ停止中</span><button id="pause" class="quiet" disabled>一時停止</button><button id="finish" class="quiet" disabled>終了して結果へ</button></div></header>
@@ -43,7 +50,7 @@ $('app').innerHTML=`
 <main class="workspace" id="experiment" tabindex="-1">
  <aside class="control-panel"><ol class="steps" aria-label="実験の手順"><li data-step="0">準備</li><li data-step="1">配置・校正</li><li data-step="2">精度確認</li><li data-step="3">練習</li><li data-step="4">本測定</li><li data-step="5">結果</li></ol>
  <div class="section-label">SESSION GUIDE</div><h1 id="stage-title">実験を準備</h1><div id="stage-body"></div>
- <div id="camera-panel" hidden><video id="camera-preview" autoplay muted playsinline></video><p id="quality" role="status">カメラを準備しています</p></div>
+ <div id="camera-panel" hidden><video id="camera-preview" autoplay muted playsinline></video><p id="quality" role="status">カメラを準備しています</p><p id="diagnostic-live" class="diagnostic-live" hidden></p></div>
  <p class="notice" id="status" role="status" aria-live="polite"></p></aside>
  <section class="reading-panel"><div class="reading-top"><span id="fixture-label">1 段組の文章</span><span id="counter">プレビュー</span></div><div id="trial-prompt" role="status">中央の文章を使って、見ている行を確かめます。</div><div id="fixture"></div><div class="reading-footer"><span id="key-hint">カメラは開始ボタンを押すまで使いません。</span><span id="progress-label"></span></div><progress id="progress" max="60" value="0" aria-label="測定の進み具合"></progress></section>
 </main><footer class="app-footer"><span>映像は端末内で処理。画像・映像・音声は保存しません。</span><span id="build-id"></span></footer>
@@ -78,6 +85,7 @@ function configure():void {
   <label>文章のレイアウト<select id="fixture-choice">${Object.entries(FIXTURES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
   <div class="field-pair"><label>本測定<select id="total"><option value="12">12 試行・動作確認</option><option value="60">60 試行・基準測定</option></select></label><label>休憩の間隔<select id="block"><option value="6">6 試行</option><option value="10">10 試行</option><option value="20">20 試行</option></select></label></div>
   <div class="field-pair"><label>行間<select id="line-height"><option value="24">24 px</option><option value="32">32 px</option></select></label><label>提示順の seed<input id="seed" type="number" min="0" max="999999" value="42"></label></div>
+  <label>診断ログ<select id="diagnostic-mode"><option value="basic">基本診断（集計のみ）</option><option value="detailed">詳細診断（ランドマーク・特徴量を保持）</option></select></label>
   <button id="start" class="primary">実験を始める</button><button id="save-preset" class="quiet full">この条件をブラウザに保存</button><p class="fineprint">保存するのは実験条件だけです。校正・視線・結果はページを閉じると消えます。</p>`);
   try {const raw=JSON.parse(localStorage.getItem('gaze-caret-preset-v1')||'null');if(raw&&raw.schema===1){for(const id of ['mode','fixture-choice','total','block','line-height','seed']){const el=$<HTMLInputElement|HTMLSelectElement>(id),v=String(raw[id]);if(el instanceof HTMLSelectElement){if([...el.options].some(o=>o.value===v))el.value=v;}else if(/^\d{1,6}$/.test(v))el.value=v;}}}catch{/* A malformed optional preference never blocks a new experiment. */}
   const preview=()=>{$('fixture').innerHTML=fixtureHtml(value('fixture-choice'));$('fixture').style.lineHeight=`${value('line-height')}px`;$('fixture-label').textContent=FIXTURES[value('fixture-choice') as keyof typeof FIXTURES];};
@@ -94,38 +102,45 @@ async function startRun():Promise<void> {
   const total=Number(value('total'));
   const config:RunConfig={mode,total,blockSize:Math.min(total,Number(value('block'))),fixture:value('fixture-choice'),seed};
   lineHeight=Number(value('line-height'));run=new Experiment(config);practice=null;sessionId=uid();revision=0;layoutRevision=0;
-  calibrationSummary=[];validations=[];trialMeta={};decisions={};cameraSettings={};stats={frames:0,validFrames:0,inferenceTotalMs:0,inferenceMaxMs:0};rng=random(seed);
+  const selectedDiagnosticMode=value('diagnostic-mode');diagnosticMode=selectedDiagnosticMode==='detailed'?'detailed':'basic';
+  diagnostics=new DiagnosticRecorder({mode:diagnosticMode});
+  diagnostics.setMetadata({engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu',featureVersion:'iris-head-12-v1',build:__BUILD_COMMIT__});
+  diagnostics.recordEvent({at:0,type:'run-started'});
+  latestFeatureReason=null;lastFaceCount=0;firstValidFeatureSeen=false;calibrationSummary=[];validations=[];trialMeta={};decisions={};cameraSettings={};stats={frames:0,validFrames:0,inferenceTotalMs:0,inferenceMaxMs:0};rng=random(seed);
   $('demo-banner').hidden=mode!=='demo';$<HTMLProgressElement>('progress').max=total;updateCounter();
   await setupCamera();
 }
-function newContext():void {revision++;contextId=`${sessionId}:${revision}`;modelId='';model=null;history.clear();latestFeatures=null;lastFeaturesAt=-Infinity;viewportSignature=signature();}
+function newContext():void {revision++;contextId=`${sessionId}:${revision}`;modelId='';model=null;history.clear();latestFeatures=null;lastFeaturesAt=-Infinity;latestFeatureReason=null;lastFaceCount=0;firstValidFeatureSeen=false;viewportSignature=signature();}
 async function setupCamera(deviceId?:string):Promise<void> {
   clearTimers();hideOverlay();stopCamera();newContext();
+  diagnostics.recordEvent({at:now(),type:'camera-setup-started'});
   setStage('camera','配置と写り方を確認',`<p>${mode==='demo'?'このデモではカメラを使いません。後で点や文章へマウスを合わせて Space を押します。':'顔と両目が映るように座ってください。カメラを動かしたときは、ここから校正し直します。'}</p>
   <label>画面に対するカメラの位置<select id="placement"><option value="top">上</option><option value="bottom">下</option><option value="left">左</option><option value="right">右</option><option value="other">その他・ずれた位置</option><option value="unknown">不明</option></select></label>
   <label>OS の表示倍率（任意・%）<input id="os-scale" type="number" min="50" max="400" placeholder="例: 125"></label>
   <label id="device-label" ${mode==='demo'?'hidden':''}>使用カメラ<select id="device"><option value="">自動選択</option></select></label>
-  <label class="check-label"><input id="placement-confirm" type="checkbox">配置と写り方を確認しました</label><button id="calibrate" class="primary" disabled>${mode==='demo'?'デモの校正を完了して進む':'校正を始める（9 点 × 2 巡）'}</button>`);
+  <label class="check-label"><input id="placement-confirm" type="checkbox">配置と写り方を確認しました</label><button id="calibrate" class="primary" disabled>${mode==='demo'?'デモの校正を完了して進む':'校正を始める（9 点 × 2 巡）'}</button><button id="download-diagnostics" class="quiet full">診断ログをダウンロード</button><p class="fineprint">詳細診断ではランドマークと特徴量を端末内に一時保持します。画像・音声は記録しません。</p>`);
   $<HTMLSelectElement>('placement').value=placement.position;
   if(placement.osScale!==null)$<HTMLInputElement>('os-scale').value=String(placement.osScale);
-  $('camera-panel').hidden=mode==='demo';
+  $('camera-panel').hidden=mode==='demo';$('diagnostic-live').hidden=mode==='demo';
+  $('download-diagnostics').onclick=()=>downloadDiagnostics();
   $('placement-confirm').onchange=updateQuality;
   $('calibrate').onclick=()=>{placement={position:value('placement'),osScale:value('os-scale')?Number(value('os-scale')):null,confirmed:true};if(mode==='demo'){modelId='demo-pointer';beginValidation(run!.trials.length>0);}else beginCalibration();};
   if(mode==='demo'){startFrames();updateQuality();return;}
   const expected=contextId;
   $('camera-status').textContent='カメラを起動中';
+  const cameraStartedAt=now();diagnostics.recordEvent({at:cameraStartedAt,type:'camera-requested'});
   try {
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('camera-context');
     const started=await camera.start(
-      ()=>navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30},...(deviceId?{deviceId:{exact:deviceId}}:{})}}),
-      async()=>{const { FaceLandmarker,FilesetResolver }=await import('@mediapipe/tasks-vision');const vision=await FilesetResolver.forVisionTasks(new URL('./wasm/',document.baseURI).href);return FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:new URL('./models/face_landmarker.task',document.baseURI).href,delegate:'CPU'},runningMode:'VIDEO',numFaces:2,minFaceDetectionConfidence:.5,minFacePresenceConfidence:.5,minTrackingConfidence:.5});},
+      async()=>{const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30},...(deviceId?{deviceId:{exact:deviceId}}:{})}});diagnostics.recordTiming('permissionAndStreamMs',now()-cameraStartedAt);diagnostics.recordEvent({at:now(),type:'stream-ready'});return stream;},
+      async()=>{const modelStartedAt=now();diagnostics.recordEvent({at:modelStartedAt,type:'model-load-started'});const { FaceLandmarker,FilesetResolver }=await import('@mediapipe/tasks-vision');const vision=await FilesetResolver.forVisionTasks(new URL('./wasm/',document.baseURI).href);const detector=await FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:new URL('./models/face_landmarker.task',document.baseURI).href,delegate:'CPU'},runningMode:'VIDEO',numFaces:2,minFaceDetectionConfidence:.5,minFacePresenceConfidence:.5,minTrackingConfidence:.5});diagnostics.recordTiming('modelLoadMs',now()-modelStartedAt);diagnostics.recordEvent({at:now(),type:'model-ready'});return detector;},
     );
     if(!started||contextId!==expected||stage!=='camera')return;
     video.srcObject=camera.stream;await video.play();if(contextId!==expected)return;
     const settings=camera.stream!.getVideoTracks()[0]!.getSettings();cameraSettings={};
     if(settings.width!==undefined)cameraSettings.width=settings.width;if(settings.height!==undefined)cameraSettings.height=settings.height;if(settings.frameRate!==undefined)cameraSettings.frameRate=settings.frameRate;
     const stream=camera.stream;stream!.getVideoTracks().forEach(t=>{t.onended=()=>{if(camera.stream===stream)pauseRun('camera-disconnected');};});
-    $('camera-status').textContent='カメラ使用中';startFrames();
+    $('camera-status').textContent='カメラ使用中';diagnostics.recordTiming('cameraSetupMs',now()-cameraStartedAt);diagnostics.recordEvent({at:now(),type:'camera-ready'});startFrames();
     const devices=await navigator.mediaDevices.enumerateDevices();if(contextId!==expected||stage!=='camera')return;
     const select=$<HTMLSelectElement>('device');select.replaceChildren(new Option('自動選択',''));
     devices.filter(d=>d.kind==='videoinput').forEach((d,i)=>select.add(new Option(d.label||`カメラ ${i+1}`,d.deviceId)));select.value=deviceId??'';
@@ -133,6 +148,7 @@ async function setupCamera(deviceId?:string):Promise<void> {
   } catch(error) {
     if(contextId!==expected||stage!=='camera')return;stopCamera();
     const name=error instanceof Error?error.name:'Error';
+    diagnostics.recordError(name);diagnostics.recordEvent({at:now(),type:'camera-start-error',detail:name});
     $('status').textContent=({NotAllowedError:'カメラが許可されていません。ブラウザの権限を確認して再試行してください。',NotFoundError:'利用できるカメラがありません。',NotReadableError:'カメラを開始できません。他のアプリの使用状況を確認してください。',OverconstrainedError:'選んだカメラを利用できません。'} as Record<string,string>)[name]??'カメラまたは推定モデルを読み込めませんでした。接続を確認して再試行してください。';
     const retry=document.createElement('button');retry.textContent='再試行';retry.onclick=()=>{void setupCamera();};$('stage-body').append(retry);
   }
@@ -141,7 +157,9 @@ function stopCamera():void {cancelAnimationFrame(frame);camera.stop();video.srcO
 function updateQuality():void {
   if(stage!=='camera')return;
   const usable=mode==='demo'||now()-lastFeaturesAt<350;
-  $('quality').textContent=usable?'顔と両目を検出しています。精度は次の校正・検証で確認します。':'顔と両目がはっきり映る位置、明るさ、眼鏡の反射を確認してください。';
+  const reason=latestFeatureReason?`（${diagnosticReasonText[latestFeatureReason]??latestFeatureReason}）`:'';
+  $('quality').textContent=usable?'顔と両目を検出しています。精度は次の校正・検証で確認します。':`顔と両目がはっきり映る位置、明るさ、眼鏡の反射を確認してください。${reason}`;
+  if(!$('diagnostic-live').hidden){const age=Number.isFinite(lastFeaturesAt)?Math.max(0,Math.round(now()-lastFeaturesAt)):'—';$('diagnostic-live').textContent=`診断: 顔 ${lastFaceCount} 個 / 有効特徴量 ${diagnostics.snapshot().counters.validFeatures} 件 / 最終有効 ${age} ms 前${reason?` / ${reason.slice(1,-1)}`:''}`;}
   $<HTMLButtonElement>('calibrate').disabled=!checked('placement-confirm')||!usable;
 }
 function startFrames():void {cancelAnimationFrame(frame);lastInference=0;lastVideoTime=-1;frame=requestAnimationFrame(tick);}
@@ -154,11 +172,16 @@ function tick(at:number):void {
   let features:number[]|null=null,point:Point|null=null;const sampledAt=now();
   if(mode==='demo'){point=pointer;}
   else {
-    if(!camera.detector||video.readyState<2||video.currentTime===lastVideoTime){updateQuality();return;}
+    if(!camera.detector){diagnostics.recordSkip('detector-not-ready');latestFeatureReason='detector-not-ready';updateQuality();return;}
+    if(video.readyState<2){diagnostics.recordSkip('video-not-ready');latestFeatureReason='video-not-ready';updateQuality();return;}
+    if(video.currentTime===lastVideoTime){diagnostics.recordSkip('unchanged-video-time');latestFeatureReason='unchanged-video-time';updateQuality();return;}
     lastVideoTime=video.currentTime;
-    try {const result=camera.detector.detectForVideo(video,sampledAt);features=extractFeatures(result.faceLandmarks,video.videoWidth,video.videoHeight);}catch{pauseRun('detector-error');return;}
-    latestFeatures=features;if(features)lastFeaturesAt=sampledAt;
+    let result:ReturnType<FaceLandmarker['detectForVideo']>;
+    try {result=camera.detector.detectForVideo(video,sampledAt);}catch{diagnostics.recordError('detector-error');diagnostics.recordEvent({at:sampledAt,type:'detector-error'});latestFeatureReason='detector-error';pauseRun('detector-error');return;}
+    const extracted=extractFeaturesDetailed(result.faceLandmarks,video.videoWidth,video.videoHeight);features=extracted.features;latestFeatureReason=extracted.reason;lastFaceCount=extracted.faceCount;
+    latestFeatures=features;if(features){lastFeaturesAt=sampledAt;if(!firstValidFeatureSeen){firstValidFeatureSeen=true;diagnostics.recordTiming('firstValidFeatureAt',sampledAt);diagnostics.recordEvent({at:sampledAt,type:'first-valid-feature'});}}
     if(features&&model){const p=predict(model,features);if(p)point={x:p.x*innerWidth,y:p.y*innerHeight};}
+    const producedAt=now(),elapsed=producedAt-sampledAt;const diagnosticFrame:DiagnosticFrameInput={at:sampledAt,phase:stage==='camera'?'camera':stage==='calibration'?'calibration':stage==='validation'?'validation':stage==='practice'?'practice':'measure',faceCount:extracted.faceCount,reason:extracted.reason,inferenceMs:elapsed,features,point};if(diagnosticMode==='detailed')diagnosticFrame.landmarks=result.faceLandmarks;diagnostics.recordFrame(diagnosticFrame);
   }
   const producedAt=now(),elapsed=producedAt-sampledAt;stats.frames++;if(features||mode==='demo'&&point)stats.validFrames++;stats.inferenceTotalMs+=elapsed;stats.inferenceMaxMs=Math.max(stats.inferenceMaxMs,elapsed);
   if(stage==='calibration'&&features){const group=calibrationGroups[calibrationIndex]!;if(acceptsCalibrationFrame(calibrationPointStarted,sampledAt,group.length))group.push({features:[...features],target:calibrationOrder[calibrationIndex]!,group:calibrationIndex});}
@@ -256,21 +279,23 @@ function closeValidation(reason:string):void {
   validation.points=interruptedValidation(validation.points,validationBusy?null:validationTargets[validationIndex]!,reason);
   validations.push(validation);validation=null;
 }
-function report():object {return{schemaVersion:1,experiment:'gaze-caret-runner-v1',build:__BUILD_COMMIT__,sessionId,generatedAt:new Date().toISOString(),config:run!.config,lineHeight,mode,scope:run!.config.total===60?'baseline-protocol':'quick-check',featureVersion:'iris-head-12-v1',engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu-ridge-lambda-1',viewport:viewport(),camera:cameraSettings,calibrations:calibrationSummary,validation:validations,practiceTrials:practice?.trials??[],trials:run!.trials.map(t=>({...t,environment:trialMeta[t.id]??null,decision:decisions[t.id]??null})),frameSummary:stats,feedback:value('feedback'),notes:'Images, video, audio, device IDs and continuous gaze history are not included. Demo and quick-check results do not establish gaze accuracy.'};}
+function report():object {return{schemaVersion:1,experiment:'gaze-caret-runner-v1',build:__BUILD_COMMIT__,sessionId,generatedAt:new Date().toISOString(),config:run!.config,lineHeight,mode,scope:run!.config.total===60?'baseline-protocol':'quick-check',featureVersion:'iris-head-12-v1',engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu-ridge-lambda-1',viewport:viewport(),camera:cameraSettings,calibrations:calibrationSummary,validation:validations,practiceTrials:practice?.trials??[],trials:run!.trials.map(t=>({...t,environment:trialMeta[t.id]??null,decision:decisions[t.id]??null})),frameSummary:stats,diagnostics:diagnostics.snapshot(),feedback:value('feedback'),notes:'Images, video, audio, device IDs and continuous gaze history are not included. Detailed diagnostics may contain normalized landmarks and derived features only when explicitly enabled.'};}
 function download(text:string,type:string,extension:string):void {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=`gaze-caret-${sessionId}.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function downloadDiagnostics():void {const payload={schemaVersion:1,experiment:'gaze-caret-diagnostics-v1',build:__BUILD_COMMIT__,sessionId,mode,config:run?.config??null,viewport:viewport(),camera:cameraSettings,placement:{...placement},diagnostics:diagnostics.snapshot()};download(JSON.stringify(payload,null,2),'application/json','diagnostics.json');}
 function showResults():void {
   clearTimers();hideOverlay();stopCamera();if(!run)return;
   const total=run.trials.length,exact=run.trials.filter(t=>t.outcome==='exact').length;
   setStage('results','結果とフィードバック',`<div class="metric"><strong>${total?Math.round(exact/total*100):'—'}<small>${total?'%':''}</small></strong><span>${mode==='demo'?'デモの行一致率':'正しい行の割合'}</span></div><p>${total} 試行を記録。候補なし・中断も分母に含みます。</p>
   <table class="counts"><tbody>${OUTCOMES.map(o=>`<tr><th>${outcomeText[o]}</th><td>${run!.trials.filter(t=>t.outcome===o).length}</td></tr>`).join('')}</tbody></table>
-  <button id="json" class="primary">詳細結果をダウンロード（JSON）</button><button id="csv" class="quiet full">試行一覧をダウンロード（CSV）</button><button id="new-run" class="quiet full">結果を破棄して新しい実験</button>`);
+  <button id="json" class="primary">詳細結果をダウンロード（JSON）</button><button id="diagnostics-json" class="quiet full">診断ログだけをダウンロード</button><button id="csv" class="quiet full">試行一覧をダウンロード（CSV）</button><button id="new-run" class="quiet full">結果を破棄して新しい実験</button>`);
   $('fixture').innerHTML=`<section class="report-panel"><div class="section-label">FEEDBACK</div><h2>次の改善につなげる</h2><p>ずれ方、疲れやすさ、操作で困ったことを残してください。</p><label>感想・気づき<textarea id="feedback" maxlength="500" rows="4" placeholder="例：右側の文章だけ、1 行下にずれる。"></textarea></label><label>共有する集計<textarea id="share-preview" rows="12" readonly></textarea></label><div class="share-actions"><button id="copy-report">集計と感想をコピー</button><label class="check-label"><input id="share-consent" type="checkbox">集計と感想を、誰でも読める GitHub Issue で共有する</label><a id="share" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">GitHub で投稿内容を確認</a></div><p class="fineprint">リンク先で内容を確認し、投稿してください。投稿後、このチャットで「結果を見て」と伝えると取得できます。投稿だけでチャットが自動起動することはありません。非公開で渡す場合は、コピーした内容や JSON をこのチャットに添付できます。</p></section>`;
   $('trial-prompt').textContent=mode==='demo'?'デモの結果です。視線の精度評価には使いません。':'今回の結果を保存し、次の実験と比較できます。';$('key-hint').textContent='画像・映像を送る必要はありません。';updateCounter();
-  const summary=()=>`Build: ${__BUILD_COMMIT__}\nLine height: ${lineHeight} CSS px\nProtocol: ${run!.config.total===60?'baseline':'quick-check'}\n\n${issueBody(sessionId,run!.config,run!.trials,value('feedback'))}`;
+  const summary=()=>`Build: ${__BUILD_COMMIT__}\nLine height: ${lineHeight} CSS px\nProtocol: ${run!.config.total===60?'baseline':'quick-check'}\n\n${issueBody(sessionId,run!.config,run!.trials,value('feedback'),diagnostics.publicSnapshot())}`;
   const update=()=>{$<HTMLTextAreaElement>('share-preview').value=summary();const a=$<HTMLAnchorElement>('share');a.setAttribute('aria-disabled',String(!checked('share-consent')));if(checked('share-consent')){try{a.href=issueUrl(summary(),sessionId);}catch{a.removeAttribute('href');$('status').textContent='共有内容が長いため、コピーして貼り付けてください。';}}else a.removeAttribute('href');};
   $('feedback').oninput=update;$('share-consent').onchange=update;update();
   $('copy-report').onclick=async()=>{try{await navigator.clipboard.writeText(summary());$('status').textContent='コピーしました。このチャットにも貼り付けられます。';}catch{$<HTMLTextAreaElement>('share-preview').select();$('status').textContent='表示した集計を手動でコピーしてください。';}};
   $('json').onclick=()=>download(JSON.stringify(report(),null,2),'application/json','json');
+  $('diagnostics-json').onclick=()=>downloadDiagnostics();
   $('csv').onclick=()=>{const rows=[['sessionId','trialId','outcome','targetId','block','region','line','x','y','reason','contextId','modelId'],...run!.trials.map(t=>{const meta=trialMeta[t.id] as {contextId?:string;modelId?:string}|undefined;return[sessionId,t.id,t.outcome,t.target.id,t.target.block,t.target.region,t.target.line,t.point?.x??'',t.point?.y??'',t.reason??'',meta?.contextId??'',meta?.modelId??''];})];download('\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n'),'text/csv;charset=utf-8','csv');};
   $('new-run').onclick=()=>{if(confirm('保存していない結果も破棄します。新しい実験を始めますか？')){run=null;practice=null;model=null;validations=[];calibrationSummary=[];calibrationGroups=[];trialMeta={};decisions={};configure();}};
 }
