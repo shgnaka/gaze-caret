@@ -10,6 +10,8 @@ import { CameraSession } from './core/camera-session.ts';
 import { DiagnosticRecorder } from './core/diagnostics.ts';
 import type { DiagnosticFrameInput, DiagnosticMode, DiagnosticReason } from './core/diagnostics.ts';
 import type { FeatureRejectReason } from './core/features.ts';
+import { DiagnosticUploadClient, buildBasicDiagnosticEnvelope } from './core/diagnostic-upload.ts';
+import type { DiagnosticUploadResult } from './core/diagnostic-upload.ts';
 import { FIXTURES, fixtureHtml, measureFixture, nearestLine, lineTarget } from './layout.ts';
 import type { Layout } from './layout.ts';
 import type { FaceLandmarker } from '@mediapipe/tasks-vision';
@@ -20,6 +22,8 @@ const value = (id: string) => $<HTMLInputElement>(id).value;
 const checked = (id: string) => $<HTMLInputElement>(id).checked;
 const now = () => performance.now();
 const uid = () => crypto.randomUUID();
+const diagnosticUploadEndpoint = (import.meta.env.VITE_DIAGNOSTIC_UPLOAD_ENDPOINT ?? '').trim();
+const diagnosticUploader = new DiagnosticUploadClient({ endpoint: diagnosticUploadEndpoint });
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 type Stage = 'configure'|'camera'|'calibration'|'validation'|'validation-done'|'practice'|'practice-done'|'measure'|'break'|'paused'|'results';
 let stage: Stage='configure', mode: Mode='camera', run: Experiment | null=null, practice: Experiment | null=null;
@@ -28,7 +32,7 @@ let frame=0,lastInference=0,lastVideoTime=-1,lastFeaturesAt=-Infinity,latestFeat
 let pointer:Point|null=null,viewportSignature='',resuming=false,layout:Layout={lines:[],targets:[]};
 let rng:()=>number=()=>0,feedbackTimer:number|undefined,calTimer:number|undefined;
 const history=new GazeHistory(),camera=new CameraSession<MediaStream,FaceLandmarker>();
-let diagnosticMode:DiagnosticMode='basic';
+let diagnosticMode:DiagnosticMode='basic',autoUploadBasic=false,autoUploadAttempted=false;
 let diagnostics=new DiagnosticRecorder({mode:'basic'});
 let latestFeatureReason:FeatureRejectReason|DiagnosticReason|null=null,lastFaceCount=0,firstValidFeatureSeen=false;
 let calibrationGroups:CalibrationSample[][]=[],calibrationOrder:Point[]=[],calibrationIndex=0,calibrationStarted=0,calibrationPointStarted=0;
@@ -86,6 +90,8 @@ function configure():void {
   <div class="field-pair"><label>本測定<select id="total"><option value="12">12 試行・動作確認</option><option value="60">60 試行・基準測定</option></select></label><label>休憩の間隔<select id="block"><option value="6">6 試行</option><option value="10">10 試行</option><option value="20">20 試行</option></select></label></div>
   <div class="field-pair"><label>行間<select id="line-height"><option value="24">24 px</option><option value="32">32 px</option></select></label><label>提示順の seed<input id="seed" type="number" min="0" max="999999" value="42"></label></div>
   <label>診断ログ<select id="diagnostic-mode"><option value="basic">基本診断（集計のみ）</option><option value="detailed">詳細診断（ランドマーク・特徴量を保持）</option></select></label>
+  <label class="check-label"><input id="diagnostic-auto-upload" type="checkbox" ${diagnosticUploadEndpoint?'':'disabled'}> 基本診断を実験終了時に自動送信する</label>
+  <p class="fineprint">${diagnosticUploadEndpoint?'送信するのは顔数・拒否理由・処理時間などの集計だけです。画像・音声・ランドマーク・特徴量・連続視線は送信しません。':'基本診断の自動送信先はまだ設定されていません。必要な場合は詳細診断をダウンロードして手動で共有できます。'}</p>
   <button id="start" class="primary">実験を始める</button><button id="save-preset" class="quiet full">この条件をブラウザに保存</button><p class="fineprint">保存するのは実験条件だけです。校正・視線・結果はページを閉じると消えます。</p>`);
   try {const raw=JSON.parse(localStorage.getItem('gaze-caret-preset-v1')||'null');if(raw&&raw.schema===1){for(const id of ['mode','fixture-choice','total','block','line-height','seed']){const el=$<HTMLInputElement|HTMLSelectElement>(id),v=String(raw[id]);if(el instanceof HTMLSelectElement){if([...el.options].some(o=>o.value===v))el.value=v;}else if(/^\d{1,6}$/.test(v))el.value=v;}}}catch{/* A malformed optional preference never blocks a new experiment. */}
   const preview=()=>{$('fixture').innerHTML=fixtureHtml(value('fixture-choice'));$('fixture').style.lineHeight=`${value('line-height')}px`;$('fixture-label').textContent=FIXTURES[value('fixture-choice') as keyof typeof FIXTURES];};
@@ -103,6 +109,7 @@ async function startRun():Promise<void> {
   const config:RunConfig={mode,total,blockSize:Math.min(total,Number(value('block'))),fixture:value('fixture-choice'),seed};
   lineHeight=Number(value('line-height'));run=new Experiment(config);practice=null;sessionId=uid();revision=0;layoutRevision=0;
   const selectedDiagnosticMode=value('diagnostic-mode');diagnosticMode=selectedDiagnosticMode==='detailed'?'detailed':'basic';
+  autoUploadBasic=mode==='camera'&&diagnosticUploadEndpoint!==''&&checked('diagnostic-auto-upload');autoUploadAttempted=false;
   diagnostics=new DiagnosticRecorder({mode:diagnosticMode});
   diagnostics.setMetadata({engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu',featureVersion:'iris-head-12-v1',build:__BUILD_COMMIT__});
   diagnostics.recordEvent({at:0,type:'run-started'});
@@ -282,13 +289,28 @@ function closeValidation(reason:string):void {
 function report():object {return{schemaVersion:1,experiment:'gaze-caret-runner-v1',build:__BUILD_COMMIT__,sessionId,generatedAt:new Date().toISOString(),config:run!.config,lineHeight,mode,scope:run!.config.total===60?'baseline-protocol':'quick-check',featureVersion:'iris-head-12-v1',engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu-ridge-lambda-1',viewport:viewport(),camera:cameraSettings,calibrations:calibrationSummary,validation:validations,practiceTrials:practice?.trials??[],trials:run!.trials.map(t=>({...t,environment:trialMeta[t.id]??null,decision:decisions[t.id]??null})),frameSummary:stats,diagnostics:diagnostics.snapshot(),feedback:value('feedback'),notes:'Images, video, audio, device IDs and continuous gaze history are not included. Detailed diagnostics may contain normalized landmarks and derived features only when explicitly enabled.'};}
 function download(text:string,type:string,extension:string):void {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=`gaze-caret-${sessionId}.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function downloadDiagnostics():void {const payload={schemaVersion:1,experiment:'gaze-caret-diagnostics-v1',build:__BUILD_COMMIT__,sessionId,mode,config:run?.config??null,viewport:viewport(),camera:cameraSettings,placement:{...placement},diagnostics:diagnostics.snapshot()};download(JSON.stringify(payload,null,2),'application/json','diagnostics.json');}
+function automaticUploadMessage(result:DiagnosticUploadResult):string {
+  if(result.status==='sent')return '基本診断を自動送信しました。画像・音声・詳細データは送信していません。';
+  if(result.status==='skipped'&&result.reason==='duplicate')return 'このセッションの基本診断は送信済みです。';
+  if(result.status==='skipped'&&result.reason==='endpoint-missing')return '自動送信先が未設定です。診断ログをダウンロードして手動で共有できます。';
+  if(result.status==='skipped'&&result.reason==='payload-too-large')return '基本診断が送信上限を超えました。診断ログをダウンロードして手動で共有してください。';
+  if(result.status==='skipped')return '自動送信先の設定を確認できませんでした。';
+  return '基本診断の自動送信に失敗しました。診断ログをダウンロードして手動で共有できます。';
+}
+async function sendAutomaticDiagnostics():Promise<void> {
+  const status=$('diagnostic-auto-status');
+  if(!autoUploadBasic||mode==='demo'){status.textContent='基本診断の自動送信は選択されていません。必要な場合は診断ログをダウンロードしてください。';return;}
+  if(autoUploadAttempted)return;autoUploadAttempted=true;status.textContent='基本診断を自動送信しています。';
+  const envelope=buildBasicDiagnosticEnvelope({sessionId,context:{build:__BUILD_COMMIT__,mode,fixture:run!.config.fixture,plannedTrials:run!.config.total},report:diagnostics.snapshot()});
+  status.textContent=automaticUploadMessage(await diagnosticUploader.send(envelope));
+}
 function showResults():void {
   clearTimers();hideOverlay();stopCamera();if(!run)return;
   const total=run.trials.length,exact=run.trials.filter(t=>t.outcome==='exact').length;
   setStage('results','結果とフィードバック',`<div class="metric"><strong>${total?Math.round(exact/total*100):'—'}<small>${total?'%':''}</small></strong><span>${mode==='demo'?'デモの行一致率':'正しい行の割合'}</span></div><p>${total} 試行を記録。候補なし・中断も分母に含みます。</p>
   <table class="counts"><tbody>${OUTCOMES.map(o=>`<tr><th>${outcomeText[o]}</th><td>${run!.trials.filter(t=>t.outcome===o).length}</td></tr>`).join('')}</tbody></table>
   <button id="json" class="primary">詳細結果をダウンロード（JSON）</button><button id="diagnostics-json" class="quiet full">診断ログだけをダウンロード</button><button id="csv" class="quiet full">試行一覧をダウンロード（CSV）</button><button id="new-run" class="quiet full">結果を破棄して新しい実験</button>`);
-  $('fixture').innerHTML=`<section class="report-panel"><div class="section-label">FEEDBACK</div><h2>次の改善につなげる</h2><p>ずれ方、疲れやすさ、操作で困ったことを残してください。</p><label>感想・気づき<textarea id="feedback" maxlength="500" rows="4" placeholder="例：右側の文章だけ、1 行下にずれる。"></textarea></label><label>共有する集計<textarea id="share-preview" rows="12" readonly></textarea></label><div class="share-actions"><button id="copy-report">集計と感想をコピー</button><label class="check-label"><input id="share-consent" type="checkbox">集計と感想を、誰でも読める GitHub Issue で共有する</label><a id="share" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">GitHub で投稿内容を確認</a></div><p class="fineprint">リンク先で内容を確認し、投稿してください。投稿後、このチャットで「結果を見て」と伝えると取得できます。投稿だけでチャットが自動起動することはありません。非公開で渡す場合は、コピーした内容や JSON をこのチャットに添付できます。</p></section>`;
+  $('fixture').innerHTML=`<section class="report-panel"><div class="section-label">FEEDBACK</div><h2>次の改善につなげる</h2><p>ずれ方、疲れやすさ、操作で困ったことを残してください。</p><p id="diagnostic-auto-status" role="status"></p><label>感想・気づき<textarea id="feedback" maxlength="500" rows="4" placeholder="例：右側の文章だけ、1 行下にずれる。"></textarea></label><label>共有する集計<textarea id="share-preview" rows="12" readonly></textarea></label><div class="share-actions"><button id="copy-report">集計と感想をコピー</button><label class="check-label"><input id="share-consent" type="checkbox">集計と感想を、誰でも読める GitHub Issue で共有する</label><a id="share" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">GitHub で投稿内容を確認</a></div><p class="fineprint">リンク先で内容を確認し、投稿してください。投稿後、このチャットで「結果を見て」と伝えると取得できます。投稿だけでチャットが自動起動することはありません。非公開で渡す場合は、コピーした内容や JSON をこのチャットに添付できます。</p></section>`;
   $('trial-prompt').textContent=mode==='demo'?'デモの結果です。視線の精度評価には使いません。':'今回の結果を保存し、次の実験と比較できます。';$('key-hint').textContent='画像・映像を送る必要はありません。';updateCounter();
   const summary=()=>`Build: ${__BUILD_COMMIT__}\nLine height: ${lineHeight} CSS px\nProtocol: ${run!.config.total===60?'baseline':'quick-check'}\n\n${issueBody(sessionId,run!.config,run!.trials,value('feedback'),diagnostics.publicSnapshot())}`;
   const update=()=>{$<HTMLTextAreaElement>('share-preview').value=summary();const a=$<HTMLAnchorElement>('share');a.setAttribute('aria-disabled',String(!checked('share-consent')));if(checked('share-consent')){try{a.href=issueUrl(summary(),sessionId);}catch{a.removeAttribute('href');$('status').textContent='共有内容が長いため、コピーして貼り付けてください。';}}else a.removeAttribute('href');};
@@ -298,6 +320,7 @@ function showResults():void {
   $('diagnostics-json').onclick=()=>downloadDiagnostics();
   $('csv').onclick=()=>{const rows=[['sessionId','trialId','outcome','targetId','block','region','line','x','y','reason','contextId','modelId'],...run!.trials.map(t=>{const meta=trialMeta[t.id] as {contextId?:string;modelId?:string}|undefined;return[sessionId,t.id,t.outcome,t.target.id,t.target.block,t.target.region,t.target.line,t.point?.x??'',t.point?.y??'',t.reason??'',meta?.contextId??'',meta?.modelId??''];})];download('\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n'),'text/csv;charset=utf-8','csv');};
   $('new-run').onclick=()=>{if(confirm('保存していない結果も破棄します。新しい実験を始めますか？')){run=null;practice=null;model=null;validations=[];calibrationSummary=[];calibrationGroups=[];trialMeta={};decisions={};configure();}};
+  void sendAutomaticDiagnostics();
 }
 $('pause').onclick=()=>pauseRun('manual-pause');$('overlay-stop').onclick=()=>pauseRun('manual-pause');
 $('finish').onclick=()=>{closeValidation('ended-early');run?.interrupt('ended-early',now());practice?.interrupt('ended-early',now());showResults();};

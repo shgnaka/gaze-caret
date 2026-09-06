@@ -9,7 +9,7 @@ GitHub Pages に静的な実験画面を置く。MediaPipe の顔・虹彩検出
 | 方式 | 今回の判断 |
 | --- | --- |
 | GitHub Pages + Issue の入力済みリンク | 採用。既存リポジトリと認証を使い、ブラウザへトークンを持たせずに結果を渡せる。アプリも Issue も公開になるため、共有する集計と感想を事前に確認する。 |
-| Cloudflare Workers + 結果保存 API | 静的配信に加え、認証とデータ保存を実装できる。初回はアカウント連携・認証・保存・削除・取得経路の運用を増やすため保留。非公開の継続的な収集が必要になった場合に再評価する。 |
+| Cloudflare Workers + R2 の診断 API | 基本診断の同意済み自動送信と、詳細ログの手動共有を分けて運用できる。Worker の受信検証、R2 の保存期間・削除経路・管理認証を確定してから有効化する。 |
 | localhost + ファイル添付 | 引き続き利用できる。公開アプリと同じビルドを動かせるが、毎回の起動と更新の手間がある。 |
 
 根拠: [GitHub Pages の公開元](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)、[Issue の URL 入力](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-an-issue#creating-an-issue-from-a-url-query)、[Workers の静的配信](https://developers.cloudflare.com/workers/static-assets/)。採否はこの実験の構成と現在の運用負担に基づく判断。
@@ -22,7 +22,7 @@ GitHub Pages に静的な実験画面を置く。MediaPipe の顔・虹彩検出
 4. 未使用の座標で精度を確認する。動作確認は 5 点、基準測定は 20 点。検証データを学習に使わない。
 5. 3 回の練習を行い、操作を確認して本測定を開始する。モデルを固定し、Space の確定後に結果を示して自動で次へ進む。
 6. 設定した区切りで休憩し、5 点の独立した再確認を経て再開する。停止、非表示化、配置・表示領域変更は旧データを無効化し、再開に配置確認と校正を要求する。
-7. 全試行を含む結果を表示し、JSON / CSV を明示操作で取得する。集計と感想はコピーしてチャットへ貼り付けるか、公開共有に同意して GitHub の入力済み Issue を開く。
+7. 全試行を含む結果を表示し、JSON / CSV を明示操作で取得する。基本診断の自動送信を事前に選んだ場合は、結果画面で同意済みの集計だけを設定済み受信先へ送る。集計と感想はコピーしてチャットへ貼り付けるか、公開共有に同意して GitHub の入力済み Issue を開く。詳細診断は手動でダウンロードする。
 
 デモ結果には DEMO、12 試行の動作確認には quick-check と記録する。これらを視線精度の基準測定と混同しない。顔プレビューと視線点を正式評価中に表示しない。候補なし・中断も集計の分母に含める。練習と座標検証は本測定の行一致率に含めない。
 
@@ -46,7 +46,11 @@ GitHub Pages に静的な実験画面を置く。MediaPipe の顔・虹彩検出
 
 カメラ準備画面には、校正前の失敗でも使える「診断ログをダウンロード」操作を置く。結果画面では実験結果 JSON と診断ログ JSON を個別に取得できる。公開 Issue の下書きには `basic` の公開用スナップショットだけを含め、詳細ログは手動で保存・共有する。
 
-外部への自動送信は、受信 API、認証、保存期間、削除方法が確定するまで呼び出さない。GitHub Pages のクライアントへ GitHub の PAT や Cloudflare の秘密情報を配置しない。Cloudflare Workers / R2 の設定後は、現在の診断 JSON を送信する transport を追加し、送信の同意・再試行・重複防止を別のテストで固定する。
+基本診断の自動送信は明示的な同意があり、ビルド時に受信先が設定されている場合だけ行う。送信するのは `basic` の集計、処理時間、拒否理由、ビルド・実験条件の最小メタデータであり、詳細モードを選んだ場合も送信直前にフレームデータを除去する。ブラウザから GitHub の PAT、Cloudflare の API トークン、R2 の認証情報は送らない。送信は HTTPS の `POST`、認証情報なし、サイズ上限、最大 2 回の一時エラー再試行、同一セッションの重複抑止を持つ。未設定・失敗時は結果を止めず、詳細ログの手動ダウンロードを案内する。
+
+Cloudflare Workers / R2 の受信 API、保存期間、削除方法、管理認証が確定するまでは、公開ビルドで endpoint を設定しない。実装済みの送信クライアントは受信先が空なら送信をスキップする。Worker と R2 の作成、ドメイン・CORS・保存期間・秘密値の登録は、Cloudflare アカウントを操作できるユーザーの作業として別途依頼する。
+
+Pages の公開ビルドは GitHub Actions の repository variable `VITE_DIAGNOSTIC_UPLOAD_ENDPOINT` を読み取る。値が空なら自動送信のチェックボックスは無効になる。この URL は秘密値ではないが、受信 API の公開 URL として扱い、API トークンや R2 の認証情報を値に入れない。
 
 ## TDD と受け入れ
 
