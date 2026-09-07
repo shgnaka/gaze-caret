@@ -19,6 +19,7 @@ The first milestone is a standalone browser experiment using a pretrained MediaP
 - [Camera placement and complex layouts](docs/environment-and-layout-validation.md) — setup confirmation, calibration validity, robustness evaluation, and staged page fixtures.
 - [Experiment runner](docs/experiment-runner.md) — the working flow, GitHub Pages deployment, explicit result sharing, and measurement boundaries.
 - [Diagnostic logging TDD](docs/tdd-diagnostics.md) — the automatic basic aggregate boundary, retry behavior, and manual detailed-log path.
+- [Private diagnostics handoff](docs/private-diagnostics-handoff.md) — the planned consent, authenticated storage, automatic sharing, MCP read access, and TDD acceptance contract. This is not enabled in the public build yet.
 - [Vimium-C coexistence](docs/vimium-c-coexistence.md) — independent caret control, key ownership, and settings JSON conversion.
 
 These documents form the initial requirements baseline. Numerical experiment settings are starting values, not demonstrated accuracy or performance claims.
