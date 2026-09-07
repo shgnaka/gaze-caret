@@ -81,6 +81,27 @@ test('worker keeps only the allowlisted aggregate metadata and event names', asy
   assert.deepEqual(stored.diagnostics.events, [{ at: 1, type: 'run-started' }]);
 });
 
+test('worker keeps only the allowlisted experiment context fields', async () => {
+  const writes: StoredWrite[] = [];
+  const unsafe = payload();
+  unsafe.context = {
+    ...(unsafe.context as Record<string, unknown>),
+    localPath: 'must-not-persist',
+    pageText: 'must-not-persist',
+  };
+  const response = await handleDiagnosticRequest(
+    new Request('https://worker.example.test/ingest', {
+      method: 'POST',
+      headers: { Origin: 'https://shgnaka.github.io', 'Content-Type': 'application/json' },
+      body: JSON.stringify(unsafe),
+    }),
+    makeEnv(writes),
+  );
+  assert.equal(response.status, 202);
+  const stored = JSON.parse(writes[0]!.value) as { context: Record<string, unknown> };
+  assert.deepEqual(stored.context, { build: 'build-1', mode: 'camera', fixture: 'baseline', plannedTrials: 12 });
+});
+
 test('worker rejects raw frame data and an origin outside the configured Pages origin', async () => {
   const writes: StoredWrite[] = [];
   const unsafe = payload();
