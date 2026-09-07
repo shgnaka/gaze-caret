@@ -18,7 +18,8 @@ const sessions = new Map<string, Session>();
 function unauthorized(request: Request, env: McpEnv): Response | null {
   const expected = env.READ_BEARER_TOKEN?.trim() ?? '';
   if (!expected) return new Response(JSON.stringify({ error: 'reader-not-configured' }), { status: 503, headers: { 'Content-Type': 'application/json' } });
-  const supplied = request.headers.get('Authorization')?.replace(/^Bearer\s+/, '').trim() ?? '';
+  const header = request.headers.get('Authorization') ?? '';
+  const supplied = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim() ?? '';
   if (supplied !== expected) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' } });
   return null;
 }
