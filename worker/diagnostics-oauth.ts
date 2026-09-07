@@ -5,7 +5,7 @@ import OAuthProvider, {
 } from '@cloudflare/workers-oauth-provider';
 import { handleDiagnosticRequest, type DiagnosticWorkerEnv } from './diagnostics-worker.ts';
 import { handlePrivateDiagnosticRequest, type DiagnosticReaderEnv } from './private-diagnostics.ts';
-import { buildGitHubCallbackUrl, GITHUB_CALLBACK_PATH, isAllowedGitHubIdentity, normalizeGitHubIdentity, requestedDiagnosticScopes } from './diagnostics-oauth-contract.ts';
+import { buildGitHubCallbackUrl, buildOAuthCookie, GITHUB_CALLBACK_PATH, isAllowedGitHubIdentity, normalizeGitHubIdentity, requestedDiagnosticScopes } from './diagnostics-oauth-contract.ts';
 import { diagnosticMcpApi } from './diagnostics-mcp-stateless.ts';
 
 export interface DiagnosticsOAuthEnv extends Omit<DiagnosticWorkerEnv, 'DIAGNOSTICS'>, Omit<DiagnosticReaderEnv, 'DIAGNOSTICS'> {
@@ -32,7 +32,7 @@ const DUMMY_SCOPE = 'mcp:read';
 const MCP_ORIGIN = 'https://gaze-caret-diagnostics.shogonakamurawppt.workers.dev';
 
 function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 function cookieValue(request: Request, name: string): string | null {
@@ -45,7 +45,7 @@ function cookieValue(request: Request, name: string): string | null {
 }
 
 function setCookie(name: string, value: string, maxAge: number): string {
-  return `${name}=${value}; HttpOnly; Secure; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
+  return buildOAuthCookie(name, value, maxAge);
 }
 
 function clearCookie(name: string): string {
