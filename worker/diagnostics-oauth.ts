@@ -1,3 +1,5 @@
+import { cookieValue, constantTimeEqual } from './oauth-cookie-values.ts';
+import { handleCookieProbe, COOKIE_PROBE_SCRIPT } from './oauth-cookie-probe.ts';
 import OAuthProvider, {
   AuthorizationError,
   type AuthRequest,
@@ -35,15 +37,6 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
-function cookieValue(request: Request, name: string): string | null {
-  const prefix = `${name}=`;
-  for (const part of (request.headers.get('Cookie') ?? '').split(';')) {
-    const trimmed = part.trim();
-    if (trimmed.startsWith(prefix)) return trimmed.slice(prefix.length);
-  }
-  return null;
-}
-
 function setCookie(name: string, value: string, maxAge: number): string {
   return buildOAuthCookie(name, value, maxAge);
 }
@@ -52,33 +45,24 @@ function clearCookie(name: string): string {
   return setCookie(name, '', 0);
 }
 
-function constantTimeEqual(actual: string, expected: string): boolean {
-  const actualBytes = new TextEncoder().encode(actual);
-  const expectedBytes = new TextEncoder().encode(expected);
-  let difference = actualBytes.length ^ expectedBytes.length;
-  const length = Math.max(actualBytes.length, expectedBytes.length);
-  for (let index = 0; index < length; index++) difference |= (actualBytes[index] ?? 0) ^ (expectedBytes[index] ?? 0);
-  return difference === 0;
-}
-
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function securityHeaders(): Headers {
+function securityHeaders(nonce?: string): Headers {
   return new Headers({
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'${nonce ? "; script-src 'nonce-" + nonce + "'; connect-src 'self'" : ""}`,
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
   });
 }
 
-function htmlResponse(body: string, cookies: string[] = []): Response {
-  const headers = securityHeaders();
+function htmlResponse(body: string, cookies: string[] = [], nonce?: string): Response {
+  const headers = securityHeaders(nonce);
   for (const cookie of cookies) headers.append('Set-Cookie', cookie);
   return new Response(body, { status: 200, headers });
 }
@@ -112,6 +96,7 @@ async function parseOAuthRequest(request: Request, env: DiagnosticsOAuthEnv): Pr
 }
 
 function authorizePage(request: Request, clientName: string, csrfToken: string): Response {
+  const nonce = crypto.randomUUID();
   const query = escapeHtml(new URL(request.url).searchParams.toString());
   const title = escapeHtml(clientName || 'MCP client');
   const body = `<!doctype html>
@@ -120,14 +105,17 @@ function authorizePage(request: Request, clientName: string, csrfToken: string):
   <h1>gaze-caret diagnostics</h1>
   <p>接続元 <strong>${title}</strong> に、この Worker の読み取りを許可します。</p>
   <p>GitHub で認証後、許可した診断データが MCP 経由で AI に渡る可能性があります。</p>
+  <p id="cookie-check" role="status" aria-live="polite">Cookie の自動確認を準備しています。</p>
+  <noscript>JavaScript が無効のため自動確認できません。続行時の認証検証は行われます。</noscript>
   <form method="post" action="/authorize">
     <input type="hidden" name="oauth_params" value="${query}">
     <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
     <label><input type="checkbox" name="ai_read" value="on"> 診断ログの AI 読み取りを許可する</label>
     <p><button type="submit">GitHub で続行</button></p>
   </form>
+<script nonce="${nonce}">${COOKIE_PROBE_SCRIPT}</script>
 </body></html>`;
-  return htmlResponse(body, [setCookie(CSRF_COOKIE, csrfToken, OAUTH_STATE_TTL_SECONDS)]);
+  return htmlResponse(body, [setCookie(CSRF_COOKIE, csrfToken, OAUTH_STATE_TTL_SECONDS)], nonce);
 }
 
 function callbackRequest(request: Request, query: string): Request {
@@ -252,6 +240,7 @@ async function githubCallback(request: Request, env: DiagnosticsOAuthEnv): Promi
 const defaultHandler = {
   async fetch(request: Request, env: DiagnosticsOAuthEnv) {
     const pathname = new URL(request.url).pathname;
+    if (pathname === '/authorize/cookie-check') return handleCookieProbe(request);
     if (pathname === '/authorize') return authorize(request, env);
     if (pathname === GITHUB_CALLBACK_PATH) return githubCallback(request, env);
     if (pathname === '/ingest') return handleDiagnosticRequest(request, env);
