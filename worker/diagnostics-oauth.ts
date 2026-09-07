@@ -5,7 +5,7 @@ import OAuthProvider, {
 } from '@cloudflare/workers-oauth-provider';
 import { handleDiagnosticRequest, type DiagnosticWorkerEnv } from './diagnostics-worker.ts';
 import { handlePrivateDiagnosticRequest, type DiagnosticReaderEnv } from './private-diagnostics.ts';
-import { buildGitHubCallbackUrl, buildOAuthCookie, GITHUB_CALLBACK_PATH, isAllowedGitHubIdentity, normalizeGitHubIdentity, requestedDiagnosticScopes } from './diagnostics-oauth-contract.ts';
+import { buildCsrfDiagnostics, buildGitHubCallbackUrl, buildOAuthCookie, GITHUB_CALLBACK_PATH, isAllowedGitHubIdentity, normalizeGitHubIdentity, requestedDiagnosticScopes } from './diagnostics-oauth-contract.ts';
 import { diagnosticMcpApi } from './diagnostics-mcp-stateless.ts';
 
 export interface DiagnosticsOAuthEnv extends Omit<DiagnosticWorkerEnv, 'DIAGNOSTICS'>, Omit<DiagnosticReaderEnv, 'DIAGNOSTICS'> {
@@ -83,8 +83,9 @@ function htmlResponse(body: string, cookies: string[] = []): Response {
   return new Response(body, { status: 200, headers });
 }
 
-function jsonError(status: number, code: string): Response {
-  return new Response(JSON.stringify({ error: code }), {
+function jsonError(status: number, code: string, diagnostics?: unknown): Response {
+  const body = diagnostics === undefined ? { error: code } : { error: code, diagnostics };
+  return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   });
@@ -149,7 +150,17 @@ async function authorize(request: Request, env: DiagnosticsOAuthEnv): Promise<Re
 
   const form = await request.formData();
   const csrfToken = form.get('csrf_token');
-  if (typeof csrfToken !== 'string' || !csrfToken || !constantTimeEqual(csrfToken, cookieValue(request, CSRF_COOKIE) ?? '')) return jsonError(400, 'csrf-failed');
+  const csrfCookie = cookieValue(request, CSRF_COOKIE);
+  const csrfDiagnostics = buildCsrfDiagnostics({
+    formToken: csrfToken,
+    csrfCookie,
+    oauthStateCookie: cookieValue(request, STATE_COOKIE),
+    cookieHeader: request.headers.get('Cookie'),
+    tokensMatch: typeof csrfToken === 'string' && csrfCookie !== null && constantTimeEqual(csrfToken, csrfCookie),
+    origin: request.headers.get('Origin'),
+    fetchSite: request.headers.get('Sec-Fetch-Site'),
+  });
+  if (csrfDiagnostics.state !== 'valid') return jsonError(400, 'csrf-failed', csrfDiagnostics);
   const query = form.get('oauth_params');
   if (typeof query !== 'string' || query.length === 0 || query.length > 8000) return jsonError(400, 'invalid-oauth-request');
 
