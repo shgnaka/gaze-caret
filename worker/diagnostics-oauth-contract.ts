@@ -21,7 +21,7 @@ export function normalizeGitHubIdentity(value: unknown): GitHubIdentity | null {
 }
 
 export function isAllowedGitHubIdentity(identity: GitHubIdentity | null, allowedUserId: string | undefined): boolean {
-  return identity !== null && typeof allowedUserId === 'string' && /^\d+$/.test(allowedUserId) && identity.id === allowedUserId;
+  return identity !== null && typeof allowedUserId === 'string' && /^\\d+$/.test(allowedUserId) && identity.id === allowedUserId;
 }
 
 export function buildGitHubCallbackUrl(origin: string): string {
@@ -34,4 +34,8 @@ export function buildGitHubCallbackUrl(origin: string): string {
 
 export function requestedDiagnosticScopes(scopes: readonly string[]): string[] {
   return scopes.includes(DIAGNOSTIC_READ_SCOPE) ? [DIAGNOSTIC_READ_SCOPE] : [];
+}
+
+export function buildOAuthCookie(name: string, value: string, maxAge: number): string {
+  return `${name}=${value}; HttpOnly; Secure; Path=/; SameSite=None; Partitioned; Max-Age=${maxAge}`;
 }
