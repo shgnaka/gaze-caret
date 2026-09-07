@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createDiagnosticMcpApi } from '../worker/diagnostics-mcp-stateless.ts';
+import { createDiagnosticMcpApi, diagnosticMcpApi } from '../worker/diagnostics-mcp-stateless.ts';
 
 const context = {
   props: { githubUserId: '90955191', login: 'shgnaka', displayName: 'owner', aiRead: true },
@@ -17,6 +17,11 @@ function mcpRequest(body: unknown): Request {
 async function call(request: Request) {
   return createDiagnosticMcpApi(context).fetch(request);
 }
+
+test('OAuth provider receives a Worker-shaped MCP API handler', () => {
+  assert.equal(typeof diagnosticMcpApi, 'object');
+  assert.equal(typeof diagnosticMcpApi.fetch, 'function');
+});
 
 test('stateless MCP exposes only read-only dummy tools for an aiRead-approved context', async () => {
   const response = await call(mcpRequest({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } } }));
