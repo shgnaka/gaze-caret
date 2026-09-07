@@ -7,10 +7,73 @@ export interface GitHubIdentity {
   name: string | null;
 }
 
+export type CsrfDiagnosticState = 'valid' | 'form-token-missing' | 'csrf-cookie-missing' | 'token-mismatch';
+export type CsrfPresence = 'present' | 'missing';
+export type CsrfOrigin = 'missing' | 'opaque-null' | 'present';
+export type CsrfFetchSite = 'missing' | 'same-origin' | 'same-site' | 'cross-site' | 'none' | 'other';
+
+export interface CsrfDiagnosticInput {
+  formToken: unknown;
+  csrfCookie: string | null;
+  oauthStateCookie: string | null;
+  cookieHeader: string | null;
+  tokensMatch: boolean;
+  origin: string | null;
+  fetchSite: string | null;
+}
+
+export interface CsrfDiagnostics {
+  schemaVersion: 1;
+  state: CsrfDiagnosticState;
+  formToken: CsrfPresence;
+  csrfCookie: CsrfPresence;
+  oauthStateCookie: CsrfPresence;
+  cookieHeader: CsrfPresence;
+  origin: CsrfOrigin;
+  fetchSite: CsrfFetchSite;
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function presence(value: unknown): CsrfPresence {
+  return typeof value === 'string' && value.length > 0 ? 'present' : 'missing';
+}
+
+function classifyOrigin(value: string | null): CsrfOrigin {
+  if (value === null) return 'missing';
+  if (value === 'null') return 'opaque-null';
+  return 'present';
+}
+
+function classifyFetchSite(value: string | null): CsrfFetchSite {
+  if (value === null) return 'missing';
+  if (value === 'same-origin' || value === 'same-site' || value === 'cross-site' || value === 'none') return value;
+  return 'other';
+}
+
+export function buildCsrfDiagnostics(input: CsrfDiagnosticInput): CsrfDiagnostics {
+  const formToken = presence(input.formToken);
+  const csrfCookie = presence(input.csrfCookie);
+  let state: CsrfDiagnosticState = 'valid';
+
+  if (formToken === 'missing') state = 'form-token-missing';
+  else if (csrfCookie === 'missing') state = 'csrf-cookie-missing';
+  else if (!input.tokensMatch) state = 'token-mismatch';
+
+  return {
+    schemaVersion: 1,
+    state,
+    formToken,
+    csrfCookie,
+    oauthStateCookie: presence(input.oauthStateCookie),
+    cookieHeader: presence(input.cookieHeader),
+    origin: classifyOrigin(input.origin),
+    fetchSite: classifyFetchSite(input.fetchSite),
+  };
 }
 
 export function normalizeGitHubIdentity(value: unknown): GitHubIdentity | null {

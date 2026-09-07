@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   GITHUB_CALLBACK_PATH,
+  buildCsrfDiagnostics,
   buildGitHubCallbackUrl,
   buildOAuthCookie,
   isAllowedGitHubIdentity,
@@ -51,4 +52,79 @@ test('OAuth transaction cookies support embedded authorization flows', () => {
   assert.match(cookie, /; Partitioned;/);
   assert.match(cookie, /; Max-Age=600$/);
   assert.doesNotMatch(cookie, /; Domain=/);
+});
+
+test('CSRF diagnostics identify a missing form token without exposing values', () => {
+  const diagnostics = buildCsrfDiagnostics({
+    formToken: null,
+    csrfCookie: null,
+    oauthStateCookie: 'state-value',
+    cookieHeader: '__Host-GAZE-OAUTHSTATE=state-value',
+    tokensMatch: false,
+    origin: 'null',
+    fetchSite: 'same-origin',
+  });
+
+  assert.deepEqual(diagnostics, {
+    schemaVersion: 1,
+    state: 'form-token-missing',
+    formToken: 'missing',
+    csrfCookie: 'missing',
+    oauthStateCookie: 'present',
+    cookieHeader: 'present',
+    origin: 'opaque-null',
+    fetchSite: 'same-origin',
+  });
+  assert.equal(JSON.stringify(diagnostics).includes('state-value'), false);
+});
+
+test('CSRF diagnostics identify a missing cookie', () => {
+  const diagnostics = buildCsrfDiagnostics({
+    formToken: 'csrf-token',
+    csrfCookie: null,
+    oauthStateCookie: null,
+    cookieHeader: null,
+    tokensMatch: false,
+    origin: 'https://gaze-caret-diagnostics.shogonakamurawppt.workers.dev',
+    fetchSite: null,
+  });
+
+  assert.equal(diagnostics.state, 'csrf-cookie-missing');
+  assert.equal(diagnostics.formToken, 'present');
+  assert.equal(diagnostics.csrfCookie, 'missing');
+  assert.equal(diagnostics.cookieHeader, 'missing');
+  assert.equal(diagnostics.origin, 'present');
+  assert.equal(diagnostics.fetchSite, 'missing');
+});
+
+test('CSRF diagnostics identify a token mismatch without exposing values', () => {
+  const diagnostics = buildCsrfDiagnostics({
+    formToken: 'form-token',
+    csrfCookie: 'cookie-token',
+    oauthStateCookie: null,
+    cookieHeader: '__Host-GAZE-CSRFTOKEN=cookie-token',
+    tokensMatch: false,
+    origin: 'https://gaze-caret-diagnostics.shogonakamurawppt.workers.dev',
+    fetchSite: 'cross-site',
+  });
+
+  assert.equal(diagnostics.state, 'token-mismatch');
+  assert.equal(JSON.stringify(diagnostics).includes('form-token'), false);
+  assert.equal(JSON.stringify(diagnostics).includes('cookie-token'), false);
+});
+
+test('CSRF diagnostics mark a valid pair as valid', () => {
+  const diagnostics = buildCsrfDiagnostics({
+    formToken: 'same-token',
+    csrfCookie: 'same-token',
+    oauthStateCookie: null,
+    cookieHeader: '__Host-GAZE-CSRFTOKEN=same-token',
+    tokensMatch: true,
+    origin: 'https://gaze-caret-diagnostics.shogonakamurawppt.workers.dev',
+    fetchSite: 'same-origin',
+  });
+
+  assert.equal(diagnostics.state, 'valid');
+  assert.equal(diagnostics.formToken, 'present');
+  assert.equal(diagnostics.csrfCookie, 'present');
 });
