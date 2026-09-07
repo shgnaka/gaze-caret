@@ -8,3 +8,7 @@ ALLOWED_ORIGIN = "https://shgnaka.github.io"
 [[r2_buckets]]
 binding = "DIAGNOSTICS"
 bucket_name = "gaze-caret-diagnostics"
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "e44be0227e744e6888bc1676f736f70b"
