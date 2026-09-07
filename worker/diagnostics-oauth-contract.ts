@@ -35,3 +35,7 @@ export function buildGitHubCallbackUrl(origin: string): string {
 export function requestedDiagnosticScopes(scopes: readonly string[]): string[] {
   return scopes.includes(DIAGNOSTIC_READ_SCOPE) ? [DIAGNOSTIC_READ_SCOPE] : [];
 }
+
+export function buildOAuthCookie(name: string, value: string, maxAge: number): string {
+  return name + '=' + value + '; HttpOnly; Secure; Path=/; SameSite=None; Partitioned; Max-Age=' + maxAge;
+}
