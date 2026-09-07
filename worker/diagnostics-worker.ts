@@ -2,6 +2,7 @@ import { toPublicDiagnosticReport } from '../src/core/diagnostic-upload.ts';
 import type { DiagnosticReport, PublicDiagnosticReport } from '../src/core/diagnostics.ts';
 import { handlePrivateDiagnosticRequest } from './private-diagnostics.ts';
 import type { DiagnosticReaderEnv } from './private-diagnostics.ts';
+import { handleDiagnosticMcpRequest } from './diagnostics-mcp.ts';
 
 export interface R2PutOptions {
   httpMetadata?: { contentType?: string };
@@ -162,6 +163,7 @@ export default {
   fetch: (request: Request, env: DiagnosticWorkerRuntimeEnv): Promise<Response> => {
     const pathname = new URL(request.url).pathname;
     if (pathname === '/ingest') return handleDiagnosticRequest(request, env);
+    if (pathname === '/mcp') return handleDiagnosticMcpRequest(request, env);
     if (pathname === '/v2/diagnostics' || pathname.startsWith('/v2/diagnostics/')) return handlePrivateDiagnosticRequest(request, env);
     return Promise.resolve(new Response(JSON.stringify({ error: 'not-found' }), {
       status: 404,
