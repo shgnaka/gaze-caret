@@ -12,6 +12,7 @@
   "scripts": {
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit",
     "check": "npm run typecheck && npm test",
     "dev": "vite --host 127.0.0.1",
     "build": "node scripts/prepare-assets.mjs && vite build",
@@ -19,14 +20,18 @@
     "test:browser": "playwright test"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260907.1",
     "@playwright/test": "1.63.0",
     "@types/node": "24.13.3",
     "typescript": "5.9.3",
-    "vite": "8.2.2"
+    "vite": "8.2.2",
+    "wrangler": "^4.129.0"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@mediapipe/tasks-vision": "0.10.32",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "agents": "^0.22.0",
     "zod": "^4.5.4"
   }
 }

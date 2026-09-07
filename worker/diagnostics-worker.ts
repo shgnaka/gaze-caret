@@ -1,8 +1,5 @@
 import { toPublicDiagnosticReport } from '../src/core/diagnostic-upload.ts';
 import type { DiagnosticReport, PublicDiagnosticReport } from '../src/core/diagnostics.ts';
-import { handlePrivateDiagnosticRequest } from './private-diagnostics.ts';
-import type { DiagnosticReaderEnv } from './private-diagnostics.ts';
-import { handleDiagnosticMcpRequest } from './diagnostics-mcp.ts';
 
 export interface R2PutOptions {
   httpMetadata?: { contentType?: string };
@@ -157,14 +154,10 @@ export async function handleDiagnosticRequest(request: Request, env: DiagnosticW
   return response(JSON.stringify({ accepted: true }), 202, origin);
 }
 
-type DiagnosticWorkerRuntimeEnv = DiagnosticWorkerEnv & DiagnosticReaderEnv;
-
 export default {
-  fetch: (request: Request, env: DiagnosticWorkerRuntimeEnv): Promise<Response> => {
+  fetch: (request: Request, env: DiagnosticWorkerEnv): Promise<Response> => {
     const pathname = new URL(request.url).pathname;
     if (pathname === '/ingest') return handleDiagnosticRequest(request, env);
-    if (pathname === '/mcp') return handleDiagnosticMcpRequest(request, env);
-    if (pathname === '/v2/diagnostics' || pathname.startsWith('/v2/diagnostics/')) return handlePrivateDiagnosticRequest(request, env);
     return Promise.resolve(new Response(JSON.stringify({ error: 'not-found' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
