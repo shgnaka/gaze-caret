@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   GITHUB_CALLBACK_PATH,
   buildGitHubCallbackUrl,
+  buildOAuthCookie,
   isAllowedGitHubIdentity,
   normalizeGitHubIdentity,
   requestedDiagnosticScopes,
@@ -38,4 +39,16 @@ test('only the diagnostic read scope can be granted', () => {
   assert.deepEqual(requestedDiagnosticScopes(['mcp:read', 'repo', 'admin']), ['mcp:read']);
   assert.deepEqual(requestedDiagnosticScopes(['repo']), []);
   assert.deepEqual(requestedDiagnosticScopes([]), []);
+});
+
+test('OAuth transaction cookies support embedded authorization flows', () => {
+  const cookie = buildOAuthCookie('__Host-GAZE-CSRFTOKEN', 'csrf-token', 600);
+  assert.match(cookie, /^__Host-GAZE-CSRFTOKEN=csrf-token;/);
+  assert.match(cookie, /; HttpOnly;/);
+  assert.match(cookie, /; Secure;/);
+  assert.match(cookie, /; Path=\//);
+  assert.match(cookie, /; SameSite=None;/);
+  assert.match(cookie, /; Partitioned;/);
+  assert.match(cookie, /; Max-Age=600$/);
+  assert.doesNotMatch(cookie, /; Domain=/);
 });
