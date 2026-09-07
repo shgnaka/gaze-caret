@@ -18,6 +18,7 @@ The first milestone is a standalone browser experiment using a pretrained MediaP
 - [Validation plan](docs/validation-plan.md) — acceptance scenarios, human experiments, metrics, and advancement criteria.
 - [Camera placement and complex layouts](docs/environment-and-layout-validation.md) — setup confirmation, calibration validity, robustness evaluation, and staged page fixtures.
 - [Experiment runner](docs/experiment-runner.md) — the working flow, GitHub Pages deployment, explicit result sharing, and measurement boundaries.
+- [Diagnostic logging TDD](docs/tdd-diagnostics.md) — the automatic basic aggregate boundary, retry behavior, and manual detailed-log path.
 - [Vimium-C coexistence](docs/vimium-c-coexistence.md) — independent caret control, key ownership, and settings JSON conversion.
 
 These documents form the initial requirements baseline. Numerical experiment settings are starting values, not demonstrated accuracy or performance claims.
@@ -34,7 +35,7 @@ M0 will prototype camera placement confirmation before calibration. The first me
 
 ## Local processing
 
-Camera frames are processed on the user's device. The initial design uses no audio, remote inference API, image recording, or automatic upload of gaze data. Starting the camera requires an explicit action; stopping releases the media tracks.
+Camera frames are processed on the user's device. The app uses no audio, remote inference API, or image recording. Basic detection aggregates can be sent only when the participant explicitly enables the configured diagnostic endpoint; the upload contains no images, audio, raw landmarks, raw features, or continuous gaze history. Detailed diagnostics remain a manual download. Starting the camera requires an explicit action; stopping releases the media tracks.
 
 Individual calibration runs on an ordinary PC. Training a general image-based gaze model is outside the first milestone.
 
@@ -59,4 +60,4 @@ For browser acceptance tests, install Chromium with `npx playwright install --wi
 
 The deployment workflow publishes the selected `experiment` branch to GitHub Pages after tests pass. Enable Pages with the GitHub Actions source once in repository settings; see [publishing and result sharing](docs/experiment-runner.md). This does not merge into `main` or `develop`.
 
-At the end of a run, download JSON/CSV, copy the summary into ChatGPT, or explicitly open a prefilled public GitHub Issue. Submit the issue on GitHub and ask ChatGPT to review it. No GitHub token is stored in the browser and no report is uploaded automatically.
+At the end of a run, download JSON/CSV, copy the summary into ChatGPT, or explicitly open a prefilled public GitHub Issue. Submit the issue on GitHub and ask ChatGPT to review it. No GitHub token or Cloudflare secret is stored in the browser. Automatic diagnostics are opt-in and remain disabled until a deployment has a configured private receiver.

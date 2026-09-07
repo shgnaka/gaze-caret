@@ -1,0 +1,10 @@
+name = "gaze-caret-diagnostics"
+main = "worker/diagnostics-worker.ts"
+compatibility_date = "2026-09-06"
+
+[vars]
+ALLOWED_ORIGIN = "https://shgnaka.github.io"
+
+[[r2_buckets]]
+binding = "DIAGNOSTICS"
+bucket_name = "gaze-caret-diagnostics"

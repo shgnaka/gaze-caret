@@ -1,4 +1,5 @@
 import type { GazeSample, Point } from './select-gaze-point.ts';
+import type { PublicDiagnosticReport } from './diagnostics.ts';
 export type Mode = 'camera' | 'demo';
 export interface Target extends Point { id: string; block: string; region: string; line: number; text: string }
 export type Outcome = 'exact' | 'adjacent' | 'other-line' | 'other-block' | 'unavailable' | 'aborted';
@@ -60,9 +61,10 @@ export class GazeHistory {
   clear(): void { this.samples = []; this.lastAt = -Infinity; }
 }
 export const OUTCOMES: readonly Outcome[] = ['exact', 'adjacent', 'other-line', 'other-block', 'unavailable', 'aborted'];
-export function issueBody(sessionId: string, config: RunConfig, trials: readonly Trial[], feedback: string): string {
+export function issueBody(sessionId: string, config: RunConfig, trials: readonly Trial[], feedback: string, diagnostics?: PublicDiagnosticReport): string {
   const counts = OUTCOMES.map(o => `${o}: ${trials.filter(t => t.outcome === o).length}`).join('\n');
-  return `gaze-caret experiment report v1\nSession: ${sessionId}\nMode: ${config.mode === 'demo' ? 'DEMO (not gaze accuracy)' : 'CAMERA'}\nFixture: ${config.fixture}\nSeed: ${config.seed}\nStarted: ${trials.length} / Planned: ${config.total}\nBlock size: ${config.blockSize}\n\n${counts}\n\nFeedback:\n${feedback.slice(0,500)}\n\nThis summary includes all started trials, including unavailable and aborted trials. No camera images or raw gaze samples are included. Full JSON may be shared separately by the participant.`;
+  const diagnosticSection = diagnostics ? `\n\nDetection diagnostics:\nFrames: ${diagnostics.counters.frames}\nValid features: ${diagnostics.counters.validFeatures}\nFace count: 0=${diagnostics.counters.faceCount.zero}, 1=${diagnostics.counters.faceCount.one}, 2+=${diagnostics.counters.faceCount.twoOrMore}\nRejected: ${Object.entries(diagnostics.counters.rejectionReasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}\nInference total: ${Math.round(diagnostics.counters.inferenceTotalMs)} ms\nInference max: ${Math.round(diagnostics.counters.inferenceMaxMs)} ms` : '';
+  return `gaze-caret experiment report v1\nSession: ${sessionId}\nMode: ${config.mode === 'demo' ? 'DEMO (not gaze accuracy)' : 'CAMERA'}\nFixture: ${config.fixture}\nSeed: ${config.seed}\nStarted: ${trials.length} / Planned: ${config.total}\nBlock size: ${config.blockSize}\n\n${counts}${diagnosticSection}\n\nFeedback:\n${feedback.slice(0,500)}\n\nThis summary includes all started trials, including unavailable and aborted trials. No camera images, raw landmarks, raw features, or continuous gaze samples are included. Full JSON may be shared separately by the participant.`;
 }
 export function issueUrl(body: string, sessionId: string): string {
   const url = new URL('https://github.com/shgnaka/gaze-caret/issues/new');

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Experiment, GazeHistory, issueBody, issueUrl, interruptedValidation } from '../src/core/runner.ts';
 import type { Target, RunConfig } from '../src/core/runner.ts';
+import type { PublicDiagnosticReport } from '../src/core/diagnostics.ts';
 const config: RunConfig = { mode: 'demo', total: 4, blockSize: 2, fixture: 'baseline', seed: 42 };
 const target: Target = { id: 'a', x: 200, y: 300, text: '本', block: 'p1', region: 'main', line: 1 };
 test('a fresh validation gates trials; early/repeated keys cannot add trials', () => {
@@ -48,10 +49,34 @@ test('sharing is an explicit GitHub draft with aggregates; no raw gaze or featur
   const run = new Experiment(config); run.validate(); run.begin(target, 0); run.decide(target, target, null, 600);
   const body = issueBody('session-1', config, run.trials, '読みやすい');
   assert.match(body, /DEMO/); assert.match(body, /exact: 1/); assert.match(body, /読みやすい/);
-  assert.doesNotMatch(body, /200|300|deviceId|features|presentedAt/);
+  assert.doesNotMatch(body, /200,300|deviceId=|presentedAt=/);
   const url = new URL(issueUrl(body, 'session-1'));
   assert.equal(url.origin, 'https://github.com'); assert.equal(url.pathname, '/shgnaka/gaze-caret/issues/new');
   assert.equal(url.searchParams.get('body'), body);
+});
+
+test('public issue may include safe detection aggregates without detailed frame data', () => {
+  const diagnostics: PublicDiagnosticReport = {
+    schemaVersion: 1,
+    mode: 'basic',
+    metadata: { engine: 'test' },
+    counters: {
+      frames: 3,
+      validFeatures: 1,
+      faceCount: { zero: 1, one: 1, twoOrMore: 1 },
+      rejectionReasons: { 'no-face': 1, 'multiple-faces': 1 },
+      skipped: {},
+      errors: {},
+      inferenceTotalMs: 21,
+      inferenceMaxMs: 9,
+    },
+    timings: {},
+    events: [],
+  };
+  const body = issueBody('session-2', config, [], '', diagnostics);
+  assert.match(body, /Detection diagnostics/);
+  assert.match(body, /no-face=1/);
+  assert.doesNotMatch(body, /landmarks=|features=|deviceId=|inferenceMs=/);
 });
 test('a presented coordinate validation target remains in the report when interrupted', () => {
   const points=[{target:{x:1,y:2},point:{x:2,y:3},reason:null,error:Math.SQRT2}];
