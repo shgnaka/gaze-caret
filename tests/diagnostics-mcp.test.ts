@@ -30,6 +30,13 @@ test('MCP endpoint fails closed before touching the diagnostic store', async () 
   assert.equal(calls, 0);
 });
 
+test('MCP rejects credentials without the Bearer scheme', async () => {
+  const request = initialize();
+  request.headers.set('Authorization', 'reader-secret');
+  const response = await handleDiagnosticMcpRequest(request, env());
+  assert.equal(response.status, 401);
+});
+
 test('MCP endpoint exposes an authenticated read-only session', async () => {
   const response = await handleDiagnosticMcpRequest(initialize(), env());
   assert.equal(response.status, 200);
