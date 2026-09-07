@@ -103,4 +103,15 @@ export function createDiagnosticMcpApi(authContext?: { props: Record<string, unk
   });
 }
 
-export const diagnosticMcpApi = createDiagnosticMcpApi();
+const diagnosticMcpHandler = createDiagnosticMcpApi();
+
+/**
+ * The OAuth provider expects an ExportedHandler object, while createMcpHandler
+ * returns a callable handler. Keep the callable internal and expose the
+ * Worker-shaped adapter to OAuthProvider.
+ */
+export const diagnosticMcpApi = {
+  fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
+    return diagnosticMcpHandler(request, env, ctx);
+  },
+};
