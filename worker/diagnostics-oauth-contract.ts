@@ -37,5 +37,5 @@ export function requestedDiagnosticScopes(scopes: readonly string[]): string[] {
 }
 
 export function buildOAuthCookie(name: string, value: string, maxAge: number): string {
-  return \${name}=\${value}; HttpOnly; Secure; Path=/; SameSite=None; Partitioned; Max-Age=\${maxAge};
+  return name + '=' + value + '; HttpOnly; Secure; Path=/; SameSite=None; Partitioned; Max-Age=' + maxAge;
 }
