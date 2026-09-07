@@ -1,5 +1,5 @@
 name = "gaze-caret-diagnostics"
-main = "worker/diagnostics-worker.ts"
+main = "worker/diagnostics-oauth.ts"
 compatibility_date = "2026-09-06"
 
 [vars]
