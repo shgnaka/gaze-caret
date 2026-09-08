@@ -8,7 +8,7 @@ import OAuthProvider, {
 } from '@cloudflare/workers-oauth-provider';
 import { handleDiagnosticRequest, type DiagnosticWorkerEnv } from './diagnostics-worker.ts';
 import { handlePrivateDiagnosticRequest, type DiagnosticReaderEnv } from './private-diagnostics.ts';
-import { buildCsrfDiagnostics, buildGitHubCallbackUrl, buildOAuthCookie, GITHUB_CALLBACK_PATH, isAllowedGitHubIdentity, normalizeGitHubIdentity, requestedDiagnosticScopes } from './diagnostics-oauth-contract.ts';
+import { buildCsrfDiagnostics, buildGitHubApiHeaders, buildGitHubCallbackUrl, buildOAuthCookie, GITHUB_CALLBACK_PATH, GITHUB_USER_AGENT, isAllowedGitHubIdentity, normalizeGitHubIdentity, requestedDiagnosticScopes } from './diagnostics-oauth-contract.ts';
 import { diagnosticMcpApi } from './diagnostics-mcp-stateless.ts';
 
 export interface DiagnosticsOAuthEnv extends Omit<DiagnosticWorkerEnv, 'DIAGNOSTICS'>, Omit<DiagnosticReaderEnv, 'DIAGNOSTICS'> {
@@ -179,7 +179,7 @@ async function exchangeGitHubCode(code: string, env: DiagnosticsOAuthEnv, callba
   if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return null;
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': GITHUB_USER_AGENT },
     body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code, redirect_uri: callbackUrl }),
   });
   if (!response.ok) return null;
@@ -210,7 +210,7 @@ async function githubCallback(request: Request, env: DiagnosticsOAuthEnv): Promi
   if (!accessToken) return jsonError(502, 'github-token-exchange-failed');
 
   const userResponse = await fetch('https://api.github.com/user', {
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${accessToken}`, 'X-GitHub-Api-Version': '2022-11-28' },
+    headers: buildGitHubApiHeaders(accessToken),
   });
   if (!userResponse.ok) return jsonError(502, 'github-identity-failed');
   const identity = normalizeGitHubIdentity(await userResponse.json());
