@@ -1,5 +1,6 @@
 import { cookieValue, constantTimeEqual } from './oauth-cookie-values.ts';
 import { handleCookieProbe, COOKIE_PROBE_SCRIPT } from './oauth-cookie-probe.ts';
+import { buildAuthorizationCsp } from './oauth-csp.ts';
 import OAuthProvider, {
   AuthorizationError,
   type AuthRequest,
@@ -50,19 +51,19 @@ async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function securityHeaders(nonce?: string): Headers {
+function securityHeaders(origin: string, nonce?: string): Headers {
   return new Headers({
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'${nonce ? "; script-src 'nonce-" + nonce + "'; connect-src 'self'" : ""}`,
+    'Content-Security-Policy': buildAuthorizationCsp(origin, nonce),
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
   });
 }
 
-function htmlResponse(body: string, cookies: string[] = [], nonce?: string): Response {
-  const headers = securityHeaders(nonce);
+function htmlResponse(body: string, cookies: string[] = [], origin = MCP_ORIGIN, nonce?: string): Response {
+  const headers = securityHeaders(origin, nonce);
   for (const cookie of cookies) headers.append('Set-Cookie', cookie);
   return new Response(body, { status: 200, headers });
 }
@@ -115,7 +116,7 @@ function authorizePage(request: Request, clientName: string, csrfToken: string):
   </form>
 <script nonce="${nonce}">${COOKIE_PROBE_SCRIPT}</script>
 </body></html>`;
-  return htmlResponse(body, [setCookie(CSRF_COOKIE, csrfToken, OAUTH_STATE_TTL_SECONDS)], nonce);
+  return htmlResponse(body, [setCookie(CSRF_COOKIE, csrfToken, OAUTH_STATE_TTL_SECONDS)], new URL(request.url).origin, nonce);
 }
 
 function callbackRequest(request: Request, query: string): Request {
