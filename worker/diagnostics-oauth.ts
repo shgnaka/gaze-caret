@@ -107,6 +107,7 @@ function authorizePage(request: Request, clientName: string, csrfToken: string):
   <p>接続元 <strong>${title}</strong> に、この Worker の読み取りを許可します。</p>
   <p>GitHub で認証後、許可した診断データが MCP 経由で AI に渡る可能性があります。</p>
   <p id="cookie-check" role="status" aria-live="polite">Cookie の自動確認を準備しています。</p>
+  <p id="submit-status" role="status" aria-live="polite"></p>
   <noscript>JavaScript が無効のため自動確認できません。続行時の認証検証は行われます。</noscript>
   <form method="post" action="/authorize">
     <input type="hidden" name="oauth_params" value="${query}">
