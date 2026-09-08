@@ -49,7 +49,7 @@ for (const scenario of ['valid', 'missing', 'network-error', 'timeout'] as const
       async fetch(url: string, init: RequestInit) {
         calls++;
         assert.equal(url, '/authorize/cookie-check');
-        assert.equal(init.credentials, 'same-origin');
+        assert.equal(init.credentials, 'include');
         assert.equal(init.cache, 'no-store');
         if (scenario === 'timeout') timeout!();
         if (scenario === 'network-error' || scenario === 'timeout') throw new Error('secret-error');
