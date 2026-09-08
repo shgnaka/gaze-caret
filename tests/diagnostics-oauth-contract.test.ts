@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   GITHUB_CALLBACK_PATH,
+  GITHUB_USER_AGENT,
+  buildGitHubApiHeaders,
   buildCsrfDiagnostics,
   buildGitHubCallbackUrl,
   buildOAuthCookie,
@@ -40,6 +42,14 @@ test('only the diagnostic read scope can be granted', () => {
   assert.deepEqual(requestedDiagnosticScopes(['mcp:read', 'repo', 'admin']), ['mcp:read']);
   assert.deepEqual(requestedDiagnosticScopes(['repo']), []);
   assert.deepEqual(requestedDiagnosticScopes([]), []);
+});
+
+test('GitHub API requests identify this application with a User-Agent', () => {
+  const headers = buildGitHubApiHeaders('test-access-token');
+  assert.equal(headers.get('User-Agent'), GITHUB_USER_AGENT);
+  assert.equal(headers.get('Accept'), 'application/vnd.github+json');
+  assert.equal(headers.get('X-GitHub-Api-Version'), '2022-11-28');
+  assert.equal(headers.get('Authorization'), 'Bearer test-access-token');
 });
 
 test('OAuth transaction cookies support embedded authorization flows', () => {
