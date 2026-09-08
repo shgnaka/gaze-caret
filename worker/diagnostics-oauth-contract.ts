@@ -1,5 +1,6 @@
 export const GITHUB_CALLBACK_PATH = '/oauth/github/callback';
 export const DIAGNOSTIC_READ_SCOPE = 'mcp:read';
+export const GITHUB_USER_AGENT = 'gaze-caret-diagnostics';
 
 export interface GitHubIdentity {
   id: string;
@@ -97,6 +98,15 @@ export function buildGitHubCallbackUrl(origin: string): string {
 
 export function requestedDiagnosticScopes(scopes: readonly string[]): string[] {
   return scopes.includes(DIAGNOSTIC_READ_SCOPE) ? [DIAGNOSTIC_READ_SCOPE] : [];
+}
+
+export function buildGitHubApiHeaders(accessToken: string): Headers {
+  return new Headers({
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${accessToken}`,
+    'User-Agent': GITHUB_USER_AGENT,
+    'X-GitHub-Api-Version': '2022-11-28',
+  });
 }
 
 export function buildOAuthCookie(name: string, value: string, maxAge: number): string {
