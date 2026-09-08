@@ -32,7 +32,23 @@ export async function handleCookieProbe(request: Request): Promise<Response> {
 export const COOKIE_PROBE_SCRIPT = `
 (async () => {
   const output = document.getElementById('cookie-check');
+  const submitStatus = document.getElementById('submit-status');
+  const form = document.querySelector('form[action="/authorize"]');
   const token = document.querySelector('input[name="csrf_token"]');
+  const submitButton = form?.querySelector('button[type="submit"]');
+  let submitted = false;
+  form?.addEventListener('submit', event => {
+    if (submitted) {
+      event.preventDefault();
+      return;
+    }
+    submitted = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'GitHub へ移動しています…';
+    }
+    if (submitStatus) submitStatus.textContent = '認証画面へ移動しています。画面が変わらない場合は、再読み込みして認証を最初からやり直してください。';
+  });
   const messages = {
     valid: 'Cookie 確認: 表示直後の送信と一致を確認しました。',
     'csrf-cookie-missing': 'Cookie 確認: 表示直後から CSRF Cookie が届いていません。',
