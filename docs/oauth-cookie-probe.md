@@ -6,7 +6,7 @@
 
 結果は「GitHub で続行」の上に表示する。正常、欠落、不一致、画面トークン欠落、通信失敗、5 秒の時間切れを区別する。確認は Cookie の再設定・削除、KV 保存、認証許可を行わない。続行時の既存 CSRF 検証は引き続き必須。JavaScript が無効でも通常の認証は実行できる。
 
-スクリプトは応答ごとの nonce で CSP に許可し、接続先は self に制限する。Cookie の属性や CSRF の許可条件は変更しない。
+スクリプトは応答ごとの nonce で CSP に許可する。埋め込み環境でページの origin が opaque になる場合にも動くよう、フォーム送信先とスクリプト通信先には Worker の明示的な origin を指定し、OAuth の転送先として GitHub だけを許可する。Cookie の属性や CSRF の許可条件は変更しない。Cookie 確認の fetch は、opaque origin からも Cookie を送れるよう credentials を include にする。
 
 ## 利用手順
 
@@ -21,6 +21,7 @@
 
 - Red: node --test tests/oauth-cookie-probe.test.ts。未実装の 404 応答に対し、正常・欠落・不一致・不正メソッドの 4 テストが失敗。
 - Green: 同じ 4 テストが成功。自動実行・通信失敗・時間切れを含む計 8 テストが成功。
+- CSP の受け入れテストで、opaque origin のフォーム送信、GitHub 転送、Cookie 確認通信の許可を確認。
 - Refactor: 既存の Cookie 読み取りと比較を共通モジュールへ移動し、認証側と診断側の実装差を避けた。
-- npm run check: 型検査と全 78 テスト成功。Worker 型検査成功。
+- npm run check: 型検査と全 79 テスト成功。Worker 型検査成功。
 - Node の DOM/fetch 代替で表示処理を確認。本物のブラウザでの Cookie 保存、CSP 適用、ユーザーの接続環境は未確認。統合・本番デプロイ後に上記手順で確認する。

@@ -44,7 +44,7 @@ export const COOKIE_PROBE_SCRIPT = `
   output.textContent = 'Cookie の送信を確認しています…';
   try {
     const response = await fetch('/authorize/cookie-check', {
-      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      method: 'POST', credentials: 'include', cache: 'no-store',
       body: new URLSearchParams({ csrf_token: token.value }),
       signal: controller.signal
     });
