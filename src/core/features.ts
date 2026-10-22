@@ -28,7 +28,9 @@ export function extractFeaturesDetailed(
   height: number,
 ): FeatureExtractionResult {
   const faceCount = faces.length;
-  if (!(width > 0 && height > 0)) return rejected('invalid-frame', faceCount);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || !(width > 0 && height > 0)) {
+    return rejected('invalid-frame', faceCount);
+  }
   if (faceCount === 0) return rejected('no-face', faceCount);
   if (faceCount > 1) return rejected('multiple-faces', faceCount);
 
@@ -43,7 +45,11 @@ export function extractFeaturesDetailed(
   const eye = (a: number, b: number, iris: number, top: number, bottom: number): number[] | null => {
     const c = p(a), d = p(b), v = p(iris), t = p(top), u = p(bottom);
     const dx = d.x - c.x, dy = d.y - c.y, w = Math.hypot(dx, dy);
-    if (w < 8 || Math.hypot(t.x - u.x, t.y - u.y) / w < 0.08) return null;
+    if (w < 8) return null;
+    // Only the lid gap perpendicular to the eye-corner axis measures opening;
+    // separation along that axis must not make a closed eye appear open.
+    const aperture = Math.abs((u.x - t.x) * dy - (u.y - t.y) * dx) / (w * w);
+    if (aperture < 0.08) return null;
     return [
       ((v.x - c.x) * dx + (v.y - c.y) * dy) / (w * w),
       (-(v.x - c.x) * dy + (v.y - c.y) * dx) / (w * w),

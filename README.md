@@ -56,6 +56,8 @@ npm run preview
 
 `npm test` runs the behavior tests; `npm run typecheck` checks types separately. Node's native TypeScript execution does not type-check. The CI workflow runs both on pull requests and on updates to `develop` / `main`. See the [first TDD record](docs/tdd-first-slice.md) for the scope, contract, and observed Red → Green → Refactor results.
 
+The [inference core TDD record](docs/tdd-inference-core.md) covers the QR ridge solver, eye-opening validity checks, and display-independent inference scheduling, including synthetic checks and their measurement limits.
+
 Open the localhost URL printed by the preview command in a top-level Chrome window. For source development, run `node scripts/prepare-assets.mjs` once and then `npm run dev`. Build assets are pinned and bundled, including the face model and WASM runtime. See [model assets](docs/model-assets.md).
 
 For browser acceptance tests, install Chromium with `npx playwright install --with-deps chromium`, then run `npm run test:browser`. These tests use synthetic inputs and a fake camera; they do not measure human gaze accuracy. CI also creates a downloadable `gaze-caret-experiment` bundle.

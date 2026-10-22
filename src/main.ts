@@ -7,6 +7,7 @@ import { fitRidge, predict, balancedSamples } from './core/regression.ts';
 import type { RidgeModel, CalibrationSample } from './core/regression.ts';
 import { extractFeaturesDetailed, acceptsCalibrationFrame } from './core/features.ts';
 import { CameraSession } from './core/camera-session.ts';
+import { InferenceScheduler } from './core/inference-scheduler.ts';
 import { DiagnosticRecorder } from './core/diagnostics.ts';
 import type { DiagnosticFrameInput, DiagnosticMode, DiagnosticReason } from './core/diagnostics.ts';
 import type { FeatureRejectReason } from './core/features.ts';
@@ -28,10 +29,11 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt
 type Stage = 'configure'|'camera'|'calibration'|'validation'|'validation-done'|'practice'|'practice-done'|'measure'|'break'|'paused'|'results';
 let stage: Stage='configure', mode: Mode='camera', run: Experiment | null=null, practice: Experiment | null=null;
 let sessionId='',revision=0,layoutRevision=0,contextId='',modelId='',model:RidgeModel|null=null;
-let frame=0,lastInference=0,lastVideoTime=-1,lastFeaturesAt=-Infinity,latestFeatures:number[]|null=null;
+let frame=0,lastVideoTime=-1,lastFeaturesAt=-Infinity,latestFeatures:number[]|null=null;
 let pointer:Point|null=null,viewportSignature='',resuming=false,layout:Layout={lines:[],targets:[]};
 let rng:()=>number=()=>0,feedbackTimer:number|undefined,calTimer:number|undefined;
 const history=new GazeHistory(),camera=new CameraSession<MediaStream,FaceLandmarker>();
+const inferenceScheduler=new InferenceScheduler();
 let diagnosticMode:DiagnosticMode='basic',autoUploadBasic=false,autoUploadAttempted=false;
 let diagnostics=new DiagnosticRecorder({mode:'basic'});
 let latestFeatureReason:FeatureRejectReason|DiagnosticReason|null=null,lastFaceCount=0,firstValidFeatureSeen=false;
@@ -169,13 +171,13 @@ function updateQuality():void {
   if(!$('diagnostic-live').hidden){const age=Number.isFinite(lastFeaturesAt)?Math.max(0,Math.round(now()-lastFeaturesAt)):'—';$('diagnostic-live').textContent=`診断: 顔 ${lastFaceCount} 個 / 有効特徴量 ${diagnostics.snapshot().counters.validFeatures} 件 / 最終有効 ${age} ms 前${reason?` / ${reason.slice(1,-1)}`:''}`;}
   $<HTMLButtonElement>('calibrate').disabled=!checked('placement-confirm')||!usable;
 }
-function startFrames():void {cancelAnimationFrame(frame);lastInference=0;lastVideoTime=-1;frame=requestAnimationFrame(tick);}
+function startFrames():void {cancelAnimationFrame(frame);inferenceScheduler.reset();lastVideoTime=-1;frame=requestAnimationFrame(tick);}
 function tick(at:number):void {
   frame=requestAnimationFrame(tick);
   if(viewportSignature!==signature()){pauseRun('viewport-changed');return;}
   // Pointer sampling is a camera-free control, not a simulated 15 Hz detector.
   // Keep it at the display cadence so demo input never inherits camera dropout.
-  if(mode==='camera'&&at-lastInference<1000/15)return;lastInference=at;
+  if(mode==='camera'&&!inferenceScheduler.take(at))return;
   let features:number[]|null=null,point:Point|null=null;const sampledAt=now();
   if(mode==='demo'){point=pointer;}
   else {
