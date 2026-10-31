@@ -6,3 +6,6 @@ public/models/
 public/wasm/
 test-results/
 playwright-report/
+
+.ci-bin/
+.ci-artifacts/

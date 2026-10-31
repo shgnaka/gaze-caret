@@ -1,0 +1,19 @@
+{
+  "nodeModulesDir": "auto",
+  "lock": {
+    "path": "deno.lock",
+    "frozen": true
+  },
+  "tasks": {
+    "test": "deno test --no-check --no-prompt tests/*.test.ts",
+    "typecheck": "deno run --no-prompt --allow-read=. --allow-env node_modules/typescript/bin/tsc --noEmit",
+    "typecheck:worker": "deno run --no-prompt --allow-read=. --allow-env node_modules/typescript/bin/tsc -p tsconfig.worker.json --noEmit",
+    "check": "deno task typecheck && deno task typecheck:worker && deno task test",
+    "assets": "deno run --no-prompt --allow-read=public,node_modules/@mediapipe --allow-write=public --allow-net=storage.googleapis.com scripts/prepare-assets.ts",
+    "build": "deno task assets && deno run --no-prompt --allow-read --allow-env --allow-write=dist --allow-ffi=node_modules --allow-sys scripts/deno-vite.ts build",
+    "dev": "deno task assets && deno run --no-prompt --allow-read --allow-env --allow-write=node_modules/.vite --allow-ffi=node_modules --allow-sys --allow-net=127.0.0.1,0.0.0.0,[::] scripts/deno-vite.ts dev",
+    "preview": "deno run --no-prompt --allow-read --allow-env --allow-ffi=node_modules --allow-sys --allow-net=127.0.0.1,0.0.0.0,[::] scripts/deno-vite.ts preview",
+    "browser:install": "deno run --no-prompt --allow-read --allow-write --allow-env --allow-net --allow-sys --allow-run --ignore-read=/proc/sys/fs/binfmt_misc/WSLInterop --deny-run=node,node.exe,npm,npm.cmd,npx,npx.cmd node_modules/@playwright/test/cli.js install chromium",
+    "test:browser": "deno task assets && deno test --no-check --no-prompt --allow-read --allow-write --allow-env --allow-sys --allow-net=127.0.0.1 --allow-run --ignore-read=/proc/sys/fs/binfmt_misc/WSLInterop --deny-run=node,node.exe,npm,npm.cmd,npx,npx.cmd tests/browser/runner.spec.ts"
+  }
+}

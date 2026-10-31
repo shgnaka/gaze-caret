@@ -1,6 +1,9 @@
 import './style.css';
 import { Experiment, GazeHistory, OUTCOMES, issueBody, issueUrl, interruptedValidation } from './core/runner.ts';
 import type { Mode, RunConfig, Target } from './core/runner.ts';
+import { createTrialRecords, summarizeConditions, conditionSummaryText, RUN_REPORT_SCHEMA_VERSION } from './core/evaluation-report.ts';
+import type { TrialEnvironment } from './core/evaluation-report.ts';
+import { trialsCsv } from './core/trial-csv.ts';
 import { selectGazePoint } from './core/select-gaze-point.ts';
 import type { Point, GazeDecision } from './core/select-gaze-point.ts';
 import { fitRidge, predict, balancedSamples } from './core/regression.ts';
@@ -38,7 +41,7 @@ let latestFeatureReason:FeatureRejectReason|DiagnosticReason|null=null,lastFaceC
 let calibrationGroups:CalibrationSample[][]=[],calibrationOrder:Point[]=[],calibrationIndex=0,calibrationStarted=0,calibrationPointStarted=0;
 let calibrationSummary:{ modelId:string; sampleCount:number; elapsedMs:number; contextId:string }[]=[];
 let placement={position:'unknown',osScale:null as number|null,confirmed:false},cameraSettings:{width?:number;height?:number;frameRate?:number}={};
-let trialMeta:Record<number,unknown>={},decisions:Record<number,GazeDecision>={};
+let trialMeta:Record<number,TrialEnvironment>={},decisions:Record<number,GazeDecision>={};
 let stats={frames:0,validFrames:0,inferenceTotalMs:0,inferenceMaxMs:0};
 interface Validation { purpose:string; contextId:string; modelId:string; points:{ target:Point; point:Point|null; reason:string|null; error:number|null }[] }
 let validations:Validation[]=[],validation:Validation|null=null,validationTargets:Point[]=[],validationIndex=0,validationPresented=0,validationBusy=false;
@@ -286,7 +289,19 @@ function closeValidation(reason:string):void {
   validation.points=interruptedValidation(validation.points,validationBusy?null:validationTargets[validationIndex]!,reason);
   validations.push(validation);validation=null;
 }
-function report():object {return{schemaVersion:1,experiment:'gaze-caret-runner-v1',build:__BUILD_COMMIT__,sessionId,generatedAt:new Date().toISOString(),config:run!.config,lineHeight,mode,scope:run!.config.total===60?'baseline-protocol':'quick-check',featureVersion:'iris-head-12-v1',engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu-ridge-lambda-1',viewport:viewport(),camera:cameraSettings,calibrations:calibrationSummary,validation:validations,practiceTrials:practice?.trials??[],trials:run!.trials.map(t=>({...t,environment:trialMeta[t.id]??null,decision:decisions[t.id]??null})),frameSummary:stats,diagnostics:diagnostics.snapshot(),feedback:value('feedback'),notes:'Images, video, audio, device IDs and continuous gaze history are not included. Detailed diagnostics may contain normalized landmarks and derived features only when explicitly enabled.'};}
+function report():object {
+  const trials=createTrialRecords(run!.trials,trialMeta,decisions);
+  return {
+    schemaVersion:RUN_REPORT_SCHEMA_VERSION,experiment:'gaze-caret-runner-v2',build:__BUILD_COMMIT__,sessionId,
+    generatedAt:new Date().toISOString(),config:run!.config,lineHeight,mode,
+    scope:run!.config.total===60?'baseline-protocol':'quick-check',featureVersion:'iris-head-12-v1',
+    engine:mode==='demo'?'mouse-pointer':'mediapipe-0.10.32-cpu-ridge-lambda-1',
+    viewport:viewport(),camera:cameraSettings,calibrations:calibrationSummary,validation:validations,
+    practiceTrials:practice?.trials??[],trials,evaluation:summarizeConditions(trials),
+    frameSummary:stats,diagnostics:diagnostics.snapshot(),feedback:value('feedback'),
+    notes:'Images, video, audio, device IDs and continuous gaze history are not included. Detailed diagnostics may contain normalized landmarks and derived features only when explicitly enabled.',
+  };
+}
 function download(text:string,type:string,extension:string):void {const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=`gaze-caret-${sessionId}.${extension}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function downloadDiagnostics():void {const payload={schemaVersion:1,experiment:'gaze-caret-diagnostics-v1',build:__BUILD_COMMIT__,sessionId,mode,config:run?.config??null,viewport:viewport(),camera:cameraSettings,placement:{...placement},diagnostics:diagnostics.snapshot()};download(JSON.stringify(payload,null,2),'application/json','diagnostics.json');}
 function automaticUploadMessage(result:DiagnosticUploadResult):string {
@@ -306,19 +321,21 @@ async function sendAutomaticDiagnostics():Promise<void> {
 }
 function showResults():void {
   clearTimers();hideOverlay();stopCamera();if(!run)return;
-  const total=run.trials.length,exact=run.trials.filter(t=>t.outcome==='exact').length;
-  setStage('results','結果とフィードバック',`<div class="metric"><strong>${total?Math.round(exact/total*100):'—'}<small>${total?'%':''}</small></strong><span>${mode==='demo'?'デモの行一致率':'正しい行の割合'}</span></div><p>${total} 試行を記録。候補なし・中断も分母に含みます。</p>
-  <table class="counts"><tbody>${OUTCOMES.map(o=>`<tr><th>${outcomeText[o]}</th><td>${run!.trials.filter(t=>t.outcome===o).length}</td></tr>`).join('')}</tbody></table>
+  const evaluation=summarizeConditions(createTrialRecords(run.trials,trialMeta,decisions));
+  const total=evaluation.total,exact=evaluation.outcomes.exact.count;
+  setStage('results','結果とフィードバック',`<div class="metric"><strong>${total?Math.round(exact/total*100):'—'}<small>${total?'%':''}</small></strong><span>${mode==='demo'?'デモの行一致率':evaluation.mixedConditions?'全条件を合わせた行一致率':'正しい行の割合'}</span></div><p>${total} 試行を記録。候補なし・中断も分母に含みます。</p>
+  ${evaluation.mixedConditions?'<p>モデルや表示条件が異なる結果を含みます。条件別の件数・座標誤差は JSON で確認できます。</p>':''}
+  <table class="counts"><tbody>${OUTCOMES.map(o=>`<tr><th>${outcomeText[o]}</th><td>${evaluation.outcomes[o].count}</td></tr>`).join('')}</tbody></table>
   <button id="json" class="primary">詳細結果をダウンロード（JSON）</button><button id="diagnostics-json" class="quiet full">診断ログだけをダウンロード</button><button id="csv" class="quiet full">試行一覧をダウンロード（CSV）</button><button id="new-run" class="quiet full">結果を破棄して新しい実験</button>`);
   $('fixture').innerHTML=`<section class="report-panel"><div class="section-label">FEEDBACK</div><h2>次の改善につなげる</h2><p>ずれ方、疲れやすさ、操作で困ったことを残してください。</p><p id="diagnostic-auto-status" role="status"></p><label>感想・気づき<textarea id="feedback" maxlength="500" rows="4" placeholder="例：右側の文章だけ、1 行下にずれる。"></textarea></label><label>共有する集計<textarea id="share-preview" rows="12" readonly></textarea></label><div class="share-actions"><button id="copy-report">集計と感想をコピー</button><label class="check-label"><input id="share-consent" type="checkbox">集計と感想を、誰でも読める GitHub Issue で共有する</label><a id="share" class="button-link" target="_blank" rel="noopener noreferrer" aria-disabled="true">GitHub で投稿内容を確認</a></div><p class="fineprint">リンク先で内容を確認し、投稿してください。投稿後、このチャットで「結果を見て」と伝えると取得できます。投稿だけでチャットが自動起動することはありません。非公開で渡す場合は、コピーした内容や JSON をこのチャットに添付できます。</p></section>`;
   $('trial-prompt').textContent=mode==='demo'?'デモの結果です。視線の精度評価には使いません。':'今回の結果を保存し、次の実験と比較できます。';$('key-hint').textContent='画像・映像を送る必要はありません。';updateCounter();
-  const summary=()=>`Build: ${__BUILD_COMMIT__}\nLine height: ${lineHeight} CSS px\nProtocol: ${run!.config.total===60?'baseline':'quick-check'}\n\n${issueBody(sessionId,run!.config,run!.trials,value('feedback'),diagnostics.publicSnapshot())}`;
+  const summary=()=>`Build: ${__BUILD_COMMIT__}\nLine height: ${lineHeight} CSS px\nProtocol: ${run!.config.total===60?'baseline':'quick-check'}\n${conditionSummaryText(evaluation)}\n\n${issueBody(sessionId,run!.config,run!.trials,value('feedback'),diagnostics.publicSnapshot())}`;
   const update=()=>{$<HTMLTextAreaElement>('share-preview').value=summary();const a=$<HTMLAnchorElement>('share');a.setAttribute('aria-disabled',String(!checked('share-consent')));if(checked('share-consent')){try{a.href=issueUrl(summary(),sessionId);}catch{a.removeAttribute('href');$('status').textContent='共有内容が長いため、コピーして貼り付けてください。';}}else a.removeAttribute('href');};
   $('feedback').oninput=update;$('share-consent').onchange=update;update();
   $('copy-report').onclick=async()=>{try{await navigator.clipboard.writeText(summary());$('status').textContent='コピーしました。このチャットにも貼り付けられます。';}catch{$<HTMLTextAreaElement>('share-preview').select();$('status').textContent='表示した集計を手動でコピーしてください。';}};
   $('json').onclick=()=>download(JSON.stringify(report(),null,2),'application/json','json');
   $('diagnostics-json').onclick=()=>downloadDiagnostics();
-  $('csv').onclick=()=>{const rows=[['sessionId','trialId','outcome','targetId','block','region','line','x','y','reason','contextId','modelId'],...run!.trials.map(t=>{const meta=trialMeta[t.id] as {contextId?:string;modelId?:string}|undefined;return[sessionId,t.id,t.outcome,t.target.id,t.target.block,t.target.region,t.target.line,t.point?.x??'',t.point?.y??'',t.reason??'',meta?.contextId??'',meta?.modelId??''];})];download('\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\r\n'),'text/csv;charset=utf-8','csv');};
+  $('csv').onclick=()=>download(trialsCsv({sessionId,build:__BUILD_COMMIT__,config:run!.config},createTrialRecords(run!.trials,trialMeta,decisions)),'text/csv;charset=utf-8','csv');
   $('new-run').onclick=()=>{if(confirm('保存していない結果も破棄します。新しい実験を始めますか？')){run=null;practice=null;model=null;validations=[];calibrationSummary=[];calibrationGroups=[];trialMeta={};decisions={};configure();}};
   void sendAutomaticDiagnostics();
 }
