@@ -19,7 +19,7 @@ async function startServer(): Promise<{ stop: () => Promise<void> }> {
   const server = new Deno.Command(Deno.execPath(), {
     cwd: new URL('../../', import.meta.url),
     args: [
-      'run', '--no-prompt', '--allow-read', '--allow-env', '--allow-sys=homedir',
+      'run', '--no-prompt', '--allow-read', '--allow-env', '--allow-sys=homedir,osRelease',
       '--allow-write=node_modules/.vite', '--allow-ffi=node_modules', '--allow-net=127.0.0.1,0.0.0.0:4173,[::]:4173',
       'scripts/deno-vite.ts', 'dev', '--port', '4173', '--strictPort',
     ],
