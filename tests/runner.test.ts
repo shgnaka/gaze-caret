@@ -33,6 +33,64 @@ test('an adjacent line in a different column is not counted as adjacent', () => 
   run.decide(target, { ...target, id: 'b', region: 'sidebar', line: 2 }, null, 600);
   assert.equal(run.trials[0]!.outcome, 'other-line');
 });
+test('TXT-02: each trial retains separate snapshots of the target, raw point and chosen line', () => {
+  const run = new Experiment(config); run.validate();
+  const presented = { ...target };
+  const rawPoint = { x: 207, y: 311 };
+  const candidate = { ...target, id: 'line-p1-3', x: 220, y: 348, line: 3, text: '' };
+  assert.equal(run.begin(presented, 0), true);
+  const pendingTarget = run.pending!.target;
+  assert.equal(run.decide(rawPoint, candidate, null, 600), true);
+  const trial = run.trials[0]!;
+  assert.deepEqual(trial.target, target);
+  assert.deepEqual(trial.point, { x: 207, y: 311 });
+  assert.deepEqual(trial.candidate, { ...target, id: 'line-p1-3', x: 220, y: 348, line: 3, text: '' });
+  assert.equal(trial.outcome, 'other-line');
+
+  // Layout, selection and pending-state objects may be reused by callers.
+  // Subsequent changes must not rewrite the completed trial's evidence.
+  presented.id = 'changed-input'; presented.line = 9;
+  pendingTarget.id = 'changed-pending'; pendingTarget.line = 8;
+  rawPoint.x = -1; rawPoint.y = -2;
+  candidate.id = 'changed-line'; candidate.line = 7; candidate.x = -3;
+  assert.deepEqual(trial.target, target);
+  assert.deepEqual(trial.point, { x: 207, y: 311 });
+  assert.deepEqual(trial.candidate, { ...target, id: 'line-p1-3', x: 220, y: 348, line: 3, text: '' });
+});
+test('TXT-02: a usable raw point without a nearby line remains measurable with a null candidate', () => {
+  const run = new Experiment(config); run.validate(); run.begin(target, 0);
+  const point = { x: 999, y: 777 };
+  assert.equal(run.decide(point, null, 'too-far', 600), true);
+  point.x = 0;
+  const trial = run.trials[0]!;
+  assert.equal(trial.outcome, 'unavailable');
+  assert.equal(trial.reason, 'too-far');
+  assert.deepEqual(trial.point, { x: 999, y: 777 });
+  assert.equal(trial.candidate, null);
+});
+test('TXT-02: missing or invalid raw points do not retain a supplied line candidate', () => {
+  for (const point of [null, { x: NaN, y: 3 }, { x: 2, y: Infinity }]) {
+    const run = new Experiment(config); run.validate(); run.begin(target, 0);
+    assert.equal(run.decide(point, target, 'invalid-features', 600), true);
+    const trial = run.trials[0]!;
+    assert.equal(trial.outcome, 'unavailable');
+    assert.equal(trial.point, null);
+    assert.equal(trial.candidate, null);
+  }
+});
+test('EVAL-04: interrupted trials retain the presented target snapshot and no candidate', () => {
+  const run = new Experiment(config); run.validate();
+  const presented = { ...target };
+  assert.equal(run.begin(presented, 10), true);
+  const pendingTarget = run.pending!.target;
+  run.interrupt('layout-changed', 20);
+  presented.id = 'changed-input'; pendingTarget.id = 'changed-pending';
+  const trial = run.trials[0]!;
+  assert.deepEqual(trial.target, target);
+  assert.equal(trial.outcome, 'aborted');
+  assert.equal(trial.point, null);
+  assert.equal(trial.candidate, null);
+});
 test('the run freezes its config and rejects invalid counts', () => {
   const mutable = { ...config }; const run = new Experiment(mutable); mutable.total = 100;
   assert.equal(run.config.total, 4); assert.equal(Object.isFrozen(run.config), true);

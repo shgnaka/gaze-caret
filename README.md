@@ -45,20 +45,20 @@ Individual calibration runs on an ordinary PC. Training a general image-based ga
 
 Development uses short-lived branches and pull requests into `develop`. `main` is reserved for reviewed releases. See [Development strategy](docs/development-strategy.md) for the alternatives considered, branch rules, implementation approach, and experiment workflow, and [Contributing](CONTRIBUTING.md) for the Red → Green → Refactor process.
 
-The core uses TypeScript with Node.js 24.19.0 and npm 11.9.0. With these versions installed:
+The core uses TypeScript and Deno 2.9.8, pinned in `.deno-version`. Development, tests and builds run without Node.js or the npm CLI. Install the pinned [Deno release](https://github.com/denoland/deno/releases/tag/v2.9.8), then run:
 
 ```sh
-npm ci --ignore-scripts --no-audit --no-fund
-npm run check
-npm run build
-npm run preview
+deno ci
+deno task check
+deno task build
+deno task preview
 ```
 
-`npm test` runs the behavior tests; `npm run typecheck` checks types separately. Node's native TypeScript execution does not type-check. The CI workflow runs both on pull requests and on updates to `develop` / `main`. See the [first TDD record](docs/tdd-first-slice.md) for the scope, contract, and observed Red → Green → Refactor results.
+`deno.lock` fixes dependency versions and integrity. Dependency lifecycle scripts remain disabled. `deno task test` executes the existing behavior tests through Deno's `node:test` compatibility layer; it does not launch Node.js. `deno task check` also runs the TypeScript compiler for the browser and diagnostics Worker. Type checking stays separate from execution.
 
-Open the localhost URL printed by the preview command in a top-level Chrome window. For source development, run `node scripts/prepare-assets.mjs` once and then `npm run dev`. Build assets are pinned and bundled, including the face model and WASM runtime. See [model assets](docs/model-assets.md).
+Open the localhost URL printed by the preview command in a top-level Chrome window. For source development, run `deno task dev`. Build assets are pinned and bundled, including the face model and WASM runtime. See [model assets](docs/model-assets.md).
 
-For browser acceptance tests, install Chromium with `npx playwright install --with-deps chromium`, then run `npm run test:browser`. These tests use synthetic inputs and a fake camera; they do not measure human gaze accuracy. CI also creates a downloadable `gaze-caret-experiment` bundle.
+For browser acceptance tests, run `deno task browser:install` and `deno task test:browser`. The Deno harness launches Chromium directly; it does not use Playwright's Node worker runner. These tests use synthetic inputs and a fake camera; they do not measure human gaze accuracy. Build tooling uses explicitly granted file, environment and native-library permissions; ordinary core tests need no extra permissions. The development server listens only on localhost.
 
 The deployment workflow publishes the selected `experiment` branch to GitHub Pages after tests pass. Enable Pages with the GitHub Actions source once in repository settings; see [publishing and result sharing](docs/experiment-runner.md). This does not merge into `main` or `develop`.
 

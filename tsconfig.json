@@ -9,6 +9,7 @@
     ],
     "types": [
       "node",
+      "deno",
       "vite/client"
     ],
     "strict": true,
@@ -23,6 +24,6 @@
     "src/**/*.ts",
     "tests/**/*.ts",
     "vite.config.ts",
-    "playwright.config.ts"
+    "scripts/**/*.ts"
   ]
 }

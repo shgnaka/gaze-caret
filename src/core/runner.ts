@@ -3,7 +3,7 @@ import type { PublicDiagnosticReport } from './diagnostics.ts';
 export type Mode = 'camera' | 'demo';
 export interface Target extends Point { id: string; block: string; region: string; line: number; text: string }
 export type Outcome = 'exact' | 'adjacent' | 'other-line' | 'other-block' | 'unavailable' | 'aborted';
-export interface Trial { id: number; target: Target; presentedAt: number; decidedAt: number; outcome: Outcome; point: Point | null; reason: string | null }
+export interface Trial { id: number; target: Target; presentedAt: number; decidedAt: number; outcome: Outcome; point: Point | null; candidate: Target | null; reason: string | null }
 export interface RunConfig { mode: Mode; total: number; blockSize: number; fixture: string; seed: number }
 export class Experiment {
   readonly config: Readonly<RunConfig>;
@@ -31,7 +31,7 @@ export class Experiment {
       : candidate.region !== target.region ? 'other-line'
       : candidate.line === target.line ? 'exact'
       : Math.abs(candidate.line - target.line) === 1 ? 'adjacent' : 'other-line';
-    this.trials.push({ id: this.trials.length + 1, target, presentedAt, decidedAt: at, outcome, point: usable ? { ...point } : null, reason });
+    this.trials.push({ id: this.trials.length + 1, target: { ...target }, presentedAt, decidedAt: at, outcome, point: usable ? { ...point } : null, candidate: usable && candidate ? { ...candidate } : null, reason });
     this.pending = null; this.phase = 'feedback'; return true;
   }
   advance(): void {
@@ -42,7 +42,7 @@ export class Experiment {
   interrupt(reason: string, at: number): void {
     if (this.phase === 'results') return;
     if (this.pending) {
-      this.trials.push({ id: this.trials.length + 1, ...this.pending, decidedAt: Math.max(at, this.pending.presentedAt), outcome: 'aborted', point: null, reason });
+      this.trials.push({ id: this.trials.length + 1, target: { ...this.pending.target }, presentedAt: this.pending.presentedAt, decidedAt: Math.max(at, this.pending.presentedAt), outcome: 'aborted', point: null, candidate: null, reason });
       this.pending = null;
     }
     this.phase = this.trials.length >= this.config.total ? 'results' : 'validation';

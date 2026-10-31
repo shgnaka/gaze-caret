@@ -1,0 +1,23 @@
+name: Deno artifact upload
+description: Upload ZIPs using Deno and the GitHub artifact service, without Node.js.
+inputs:
+  name:
+    description: Artifact name
+    required: true
+  zip:
+    description: ZIP path relative to workspace
+    required: true
+  retention:
+    description: Days to retain artifact
+    default: '14'
+    required: false
+outputs:
+  artifact-id:
+    description: Uploaded artifact ID
+runs:
+  using: docker
+  image: Dockerfile
+  args:
+    - ${{ inputs.name }}
+    - ${{ inputs.zip }}
+    - ${{ inputs.retention }}
